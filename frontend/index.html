@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stillpoint — Proof without seeing.</title>
+<style>
+:root{
+  --bg:#0b1220; --bg2:#0e1628; --card:#16213a; --card2:#1c2947;
+  --line:#26355a; --blue:#4a9eff; --blue-d:#2f6fd0;
+  --green:#2fbf71; --amber:#e8a13d; --grey:#8a94a8; --red:#c26a6a;
+  --ink:#f2f5fa; --mut:#a9b4c7; --r-lg:20px; --r-md:14px; --r-sm:10px;
+}
+*{box-sizing:border-box}
+html{background:#070c16}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-size:17px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:460px;margin:0 auto;padding:0 18px 90px}
+.topbar{position:sticky;top:0;z-index:50;background:rgba(11,18,32,.96);
+  border-bottom:1px solid var(--line);padding:12px 0 10px}
+.brand{display:flex;align-items:center;gap:10px;margin:0 0 10px}
+.brand .dot{width:30px;height:30px;border-radius:9px;background:var(--blue);
+  display:grid;place-items:center;flex:none}
+.brand b{font-size:17px;letter-spacing:.2px}
+.brand small{display:block;color:var(--mut);font-size:12.5px;font-weight:400}
+.nav{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.nav::-webkit-scrollbar{display:none}
+.nav button{flex:none;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:999px;padding:8px 14px;font-size:14px;cursor:pointer}
+.nav button[aria-current="true"]{background:var(--blue);border-color:var(--blue);color:#06101f;font-weight:700}
+h1{font-size:30px;line-height:1.2;margin:26px 0 8px;letter-spacing:-.3px}
+h2{font-size:22px;margin:0 0 6px;letter-spacing:-.2px}
+h3{font-size:17px;margin:18px 0 8px}
+p{margin:8px 0;color:var(--ink)}
+.sub{color:var(--mut);font-size:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:18px;margin:14px 0}
+.card.tight{padding:14px 16px}
+.row{display:flex;gap:10px;align-items:center}
+.grow{flex:1}
+.btn{display:block;width:100%;border:0;border-radius:var(--r-md);padding:15px 16px;
+  font-size:17px;font-weight:700;cursor:pointer;margin:10px 0;text-align:center;text-decoration:none}
+.btn-pri{background:var(--blue);color:#06101f}
+.btn-sec{background:var(--card2);color:var(--ink);border:1px solid var(--line)}
+.btn-ghost{background:transparent;color:var(--blue);border:1px dashed var(--line)}
+.btn-sm{width:auto;display:inline-block;padding:10px 16px;font-size:15px;margin:6px 6px 0 0}
+.pill{display:inline-block;font-size:13px;font-weight:700;border-radius:999px;padding:4px 12px}
+.p-green{background:rgba(47,191,113,.16);color:var(--green)}
+.p-amber{background:rgba(232,161,61,.16);color:var(--amber)}
+.p-grey{background:rgba(138,148,168,.16);color:var(--mut)}
+.p-blue{background:rgba(74,158,255,.16);color:var(--blue)}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:15.5px}
+.kv:first-of-type{border-top:0}
+.kv span{color:var(--mut)}
+.kv b{font-variant-numeric:tabular-nums;text-align:right}
+.meter{height:12px;border-radius:999px;background:var(--card2);overflow:hidden;margin:10px 0 4px}
+.meter i{display:block;height:100%;border-radius:999px}
+.screen{display:none}
+.screen.on{display:block;animation:fade .25s ease}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.screen.on{animation:none}}
+.hero{padding:26px 0 6px}
+.hero .mark{width:54px;height:54px;border-radius:16px;background:var(--blue);
+  display:grid;place-items:center;margin-bottom:14px}
+.tag{color:var(--mut);font-size:16px;margin:2px 0 0}
+.device-note{display:flex;gap:8px;align-items:center;color:var(--mut);font-size:13.5px;margin:12px 0}
+.device-note svg{flex:none}
+.swatches{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}
+.swatch{border-radius:var(--r-md);padding:14px;border:1px solid var(--line);min-height:86px}
+.swatch b{display:block;font-size:14px}
+.swatch code{font-size:12.5px;color:var(--mut)}
+.type-row{border-top:1px solid var(--line);padding:10px 0}
+.type-row:first-of-type{border-top:0}
+.icon-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:12px 0}
+.icon-cell{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:12px 6px;text-align:center;font-size:12px;color:var(--mut)}
+.icon-cell svg{display:block;margin:0 auto 6px}
+.steps{counter-reset:st;margin:12px 0}
+.step{display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+.step:first-child{border-top:0}
+.step .n{flex:none;width:28px;height:28px;border-radius:50%;background:var(--card2);
+  border:1px solid var(--line);display:grid;place-items:center;font-weight:700;font-size:14px}
+.photo{border-radius:var(--r-md);border:1px solid var(--line);overflow:hidden;background:var(--card2)}
+.photo svg{display:block;width:100%;height:auto}
+.cap{font-size:13.5px;color:var(--mut);margin:8px 2px}
+.verdict{border-radius:var(--r-lg);padding:18px;margin:14px 0;border:1px solid var(--line);background:var(--card)}
+.verdict.v-green{border-top:4px solid var(--green)}
+.verdict.v-amber{border-top:4px solid var(--amber)}
+.verdict.v-grey{border-top:4px solid var(--grey)}
+.verdict h3{margin:0 0 4px;font-size:18px}
+.keys{display:grid;gap:10px;margin:12px 0}
+.key{display:flex;gap:12px;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r-md);padding:14px}
+.key .kn{flex:none;width:34px;height:34px;border-radius:10px;background:var(--card2);
+  border:1px solid var(--line);display:grid;place-items:center;font-weight:800;color:var(--blue)}
+.key b{display:block;font-size:16px}
+.key p{margin:2px 0 0;font-size:14px;color:var(--mut)}
+.banner{border-radius:var(--r-md);padding:14px 16px;margin:14px 0;font-size:15px;
+  background:rgba(232,161,61,.1);border:1px solid rgba(232,161,61,.45)}
+.banner.blue{background:rgba(74,158,255,.1);border-color:rgba(74,158,255,.45)}
+.banner.green{background:rgba(47,191,113,.1);border-color:rgba(47,191,113,.45)}
+.checkline{display:flex;gap:10px;align-items:flex-start;padding:8px 0;font-size:15px}
+.checkline svg{flex:none;margin-top:3px}
+footer{color:var(--mut);font-size:13px;text-align:center;margin:34px 0 10px}
+.prog{height:10px;border-radius:999px;background:var(--card2);overflow:hidden;margin:8px 0}
+.prog i{display:block;height:100%;background:var(--blue);border-radius:999px}
+.flow3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:12px 0}
+.flow3 div{background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:10px 6px;text-align:center;font-size:12.5px;color:var(--mut)}
+.flow3 div b{display:block;color:var(--ink);font-size:13px;margin-top:4px}
+.attack{display:flex;gap:12px;align-items:center;background:var(--card);
+  border:1px solid var(--line);border-radius:var(--r-md);padding:12px 14px;margin:8px 0}
+.attack .grow b{display:block}
+.attack .grow small{color:var(--mut)}
+details{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:12px 14px;margin:10px 0;font-size:15px}
+details summary{cursor:pointer;font-weight:700}
+details p,details li{color:var(--mut);font-size:14.5px}
+ul.plain{margin:8px 0;padding-left:20px}
+ul.plain li{margin:5px 0}
+</style>
+</head>
+<body>
+<div class="topbar"><div class="wrap" style="padding-bottom:0">
+  <div class="brand">
+    <span class="dot" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#06101f" stroke-width="2.6" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></span>
+    <b>Stillpoint<small>Proof without seeing.</small></b>
+  </div>
+  <nav class="nav" aria-label="Screens" id="nav"></nav>
+</div></div>
+<div class="wrap">
+<!-- 0 · HERO + DESIGN SYSTEM -->
+<section class="screen on" data-title="Hello">
+  <div class="hero">
+    <div class="mark" aria-hidden="true"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#06101f" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></div>
+    <h1>Proof without seeing.</h1>
+    <p class="tag">If someone shares an edited photo of you, Stillpoint can show it came from your original — by matching the room behind you, never your face.</p>
+  </div>
+  <div class="card">
+    <div class="row"><b class="grow">How it works</b><span class="pill p-blue">60 seconds</span></div>
+    <p class="sub" style="margin-bottom:0">An edited photo keeps the exact camera spot, so the bed, poster and door stay in the same place. A brand-new photo in the same room never lines up that well. We measure that lineup — not what you look like.</p>
+  </div>
+  <div class="card">
+    <b>What we never do</b>
+    <div class="checkline"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2fbf71" stroke-width="3" stroke-linecap="round"><path d="M4 13l5 5L20 7"/></svg><span>No face recognition. No face database.</span></div>
+    <div class="checkline"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2fbf71" stroke-width="3" stroke-linecap="round"><path d="M4 13l5 5L20 7"/></svg><span>No human needs to view intimate photos.</span></div>
+    <div class="checkline"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2fbf71" stroke-width="3" stroke-linecap="round"><path d="M4 13l5 5L20 7"/></svg><span>Nothing leaves your phone unless you choose to report.</span></div>
+  </div>
+  <h3>Color palette</h3>
+  <div class="swatches">
+    <div class="swatch" style="background:#0b1220"><b>Deep Navy</b><code>#0B1220 · background</code></div>
+    <div class="swatch" style="background:#4a9eff;color:#06101f;border-color:#4a9eff"><b>Soft Blue</b><code style="color:#0a2547">#4A9EFF · primary</code></div>
+    <div class="swatch" style="background:#16213a"><b>Card Slate</b><code>#16213A · surfaces</code></div>
+    <div class="swatch" style="background:#2fbf71;color:#06140d;border-color:#2fbf71"><b>Calm Green</b><code style="color:#0a3524">#2FBF71 · Likely derivative</code></div>
+    <div class="swatch" style="background:#e8a13d;color:#241500;border-color:#e8a13d"><b>Warm Amber</b><code style="color:#4a2f08">#E8A13D · Cannot determine</code></div>
+    <div class="swatch" style="background:#8a94a8;color:#141a26;border-color:#8a94a8"><b>Quiet Grey</b><code style="color:#2c3547">#8A94A8 · No link found</code></div>
+  </div>
+  <h3>Typography</h3>
+  <div class="card tight">
+    <div class="type-row"><span style="font-size:30px;font-weight:800;letter-spacing:-.3px">Headline 30</span><br><span class="sub" style="font-size:13px">System font · Bold · screen titles</span></div>
+    <div class="type-row"><span style="font-size:22px;font-weight:700">Section 22</span><br><span class="sub" style="font-size:13px">System font · Semibold · card titles</span></div>
+    <div class="type-row"><span style="font-size:17px">Body 17 — large, readable, calm.</span><br><span class="sub" style="font-size:13px">System font · Regular · a 14-year-old can read it</span></div>
+    <div class="type-row"><span class="sub" style="font-size:13.5px">Caption 13.5 — reassurance and fine print in muted slate.</span></div>
+  </div>
+  <h3>Icon set</h3>
+  <div class="icon-grid">
+    <div class="icon-cell"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Protect</div>
+    <div class="icon-cell"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" stroke-width="2.2" stroke-linecap="round"><rect x="3" y="7" width="18" height="13" rx="3"/><circle cx="12" cy="13" r="3.5"/></svg>Camera</div>
+    <div class="icon-cell"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" stroke-width="2.2" stroke-linecap="round"><path d="M3 3l18 18M10 6h9a2 2 0 012 2v9M6 6H5a2 2 0 00-2 2v9a2 2 0 002 2h9a2 2 0 002-2v-1"/></svg>Blind</div>
+    <div class="icon-cell"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2fbf71" stroke-width="2.4" stroke-linecap="round"><path d="M4 13l5 5L20 7"/></svg>Aligns</div>
+    <div class="icon-cell"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#e8a13d" stroke-width="2.2" stroke-linecap="round"><path d="M12 4L2 20h20z"/><path d="M12 10v4M12 17v.5"/></svg>Unsure</div>
+    <div class="icon-cell"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8a94a8" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>No link</div>
+    <div class="icon-cell"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" stroke-width="2.2" stroke-linecap="round"><circle cx="8" cy="14" r="4"/><path d="M11 11l9-9M17 4l3 3M14 7l3 3"/></svg>Keys</div>
+    <div class="icon-cell"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" stroke-width="2.2" stroke-linecap="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>Sealed</div>
+  </div>
+</section>
+<!-- 1 · HOME -->
+<section class="screen" data-title="1 · Home">
+  <h1>Check a photo someone shared about you</h1>
+  <p class="sub">You are in control. Take it one step at a time.</p>
+  <a class="btn btn-pri" href="#" onclick="return false">Check a Suspicious Photo</a>
+  <a class="btn btn-sec" href="#" onclick="return false">Protect a Photo Before Sharing</a>
+  <p class="cap" style="text-align:center">Nothing leaves your phone unless you choose to report. No face database.</p>
+  <h3>Your protected photos</h3>
+  <div class="card tight">
+    <div class="row"><b class="grow">Bedroom · window wall</b><span class="pill p-green">STRONG</span></div>
+    <p class="cap">27 stable points · 64% of room · saved 12 Oct</p>
+  </div>
+  <div class="card tight">
+    <div class="row"><b class="grow">Bedroom · plain wall</b><span class="pill p-amber">WEAK</span></div>
+    <p class="cap">Only 8 points found — we will only say Cannot Determine for this one.</p>
+  </div>
+  <div class="device-note"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a9b4c7" stroke-width="2.2" stroke-linecap="round"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18.5h2"/></svg>Computed on your device</div>
+</section>
+<!-- 2 · PROTECT -->
+<section class="screen" data-title="2 · Protect">
+  <h1>Protect a scene</h1>
+  <p class="sub">Save a map of your room — never a photo of you.</p>
+  <div class="steps">
+    <div class="step"><span class="n">1</span><div><b>Pick your original photo</b><p class="sub" style="font-size:15px;margin:2px 0 0">Choose it from your own gallery. It never uploads.</p></div></div>
+    <div class="step"><span class="n">2</span><div><b>You are covered automatically</b><p class="sub" style="font-size:15px;margin:2px 0 0">Person removed. We never save face or body.</p></div></div>
+  </div>
+  <div class="photo" role="img" aria-label="Masked preview: grey mannequin covered by a black box, room objects visible">
+    <svg viewBox="0 0 400 250">
+      <rect width="400" height="250" fill="#1c2947"/>
+      <rect x="24" y="120" width="150" height="90" rx="8" fill="#2a3c66"/><text x="38" y="170" fill="#a9b4c7" font-size="15">bed</text>
+      <rect x="60" y="30" width="80" height="60" rx="8" fill="#2a3c66"/><text x="70" y="66" fill="#a9b4c7" font-size="14">poster</text>
+      <rect x="300" y="40" width="70" height="170" rx="8" fill="#2a3c66"/><text x="310" y="130" fill="#a9b4c7" font-size="14">door</text>
+      <rect x="40" y="218" width="150" height="20" rx="8" fill="#2a3c66"/>
+      <rect x="205" y="60" width="70" height="150" rx="14" fill="#6b768c"/>
+      <rect x="195" y="50" width="90" height="170" rx="6" fill="#000"/>
+      <text x="203" y="240" fill="#a9b4c7" font-size="12">person masked</text>
+    </svg>
+  </div>
+  <p class="cap">Preview shows the mask. The person is never stored.</p>
+  <div class="step"><span class="n">3</span><div><b>Prove you are really there</b><p class="sub" style="font-size:15px;margin:2px 0 0">Pan your room for 5 seconds. Camera view stays on your phone.</p></div></div>
+  <div class="photo" role="img" aria-label="Room pan challenge viewfinder"><svg viewBox="0 0 400 120"><rect width="400" height="120" fill="#101a30"/><rect x="30" y="24" width="340" height="72" rx="12" fill="none" stroke="#4a9eff" stroke-width="2" stroke-dasharray="8 6"/><text x="150" y="62" fill="#f2f5fa" font-size="15">Pan slowly… 0:03</text><path d="M60 96l40-14 40 14" stroke="#4a9eff" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg></div>
+  <h3>Protection coverage</h3>
+  <div class="card">
+    <div class="row"><b class="grow">STRONG</b><span class="pill p-green">64% of room</span></div>
+    <div class="meter"><i style="width:64%;background:var(--green)"></i></div>
+    <p class="sub" style="font-size:15px">27 stable points found, covering 64% of the room. Good protection.</p>
+  </div>
+  <div class="card">
+    <div class="row"><b class="grow">WEAK</b><span class="pill p-amber">12% of room</span></div>
+    <div class="meter"><i style="width:12%;background:var(--amber)"></i></div>
+    <p class="sub" style="font-size:15px">Only 8 points found. This plain wall is too weak — we will only say Cannot Determine.</p>
+  </div>
+  <div class="card">
+    <b>What is saved on your phone</b>
+    <div class="checkline"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2fbf71" stroke-width="3" stroke-linecap="round"><path d="M4 13l5 5L20 7"/></svg><span>Scene map: object layout + date</span></div>
+    <div class="checkline"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c26a6a" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span>NEVER saved: face, body shape, GPS, original photo</span></div>
+  </div>
+  <div class="device-note"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a9b4c7" stroke-width="2.2" stroke-linecap="round"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18.5h2"/></svg>Computed on your device</div>
+</section>
+<!-- 3 · BLIND CHECK -->
+<section class="screen" data-title="3 · Check">
+  <h1>Check without looking</h1>
+  <p class="sub">A trusted contact sent the suspect photo. You never have to see it.</p>
+  <div class="card">
+    <div class="row"><b class="grow">Blind Mode</b><span class="pill p-blue">ON</span></div>
+    <p class="sub" style="font-size:15px;margin-bottom:0">You will not see the suspect photo. Only the room map is checked.</p>
+  </div>
+  <div class="photo" role="img" aria-label="Suspect hidden behind blind mode"><svg viewBox="0 0 400 150"><rect width="400" height="150" fill="#101a30"/><rect x="60" y="30" width="280" height="90" rx="12" fill="#000"/><text x="128" y="80" fill="#a9b4c7" font-size="15">suspect hidden</text></svg></div>
+  <h3>Checking…</h3>
+  <div class="flow3">
+    <div>1<b>Masking</b></div><div>2<b>Room map</b></div><div>3<b>Aligning</b></div>
+  </div>
+  <div class="prog"><i style="width:66%"></i></div>
+  <p class="cap">Step 2 of 3 · Extracting room map… about 20 seconds left.</p>
+  <div class="device-note"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a9b4c7" stroke-width="2.2" stroke-linecap="round"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18.5h2"/></svg>Computed on your device</div>
+</section>
+<!-- 4 · RESULTS -->
+<section class="screen" data-title="4 · Results">
+  <h1>Your result</h1>
+  <p class="sub">Three answers only. We would rather say we are unsure than blame the wrong person.</p>
+  <div class="verdict v-green">
+    <span class="pill p-green">Likely derivative</span>
+    <h3 style="margin-top:8px">It lines up from the exact same camera spot.</h3>
+    <div class="kv"><span>Alignment</span><b>93% · 26 of 28 points</b></div>
+    <div class="kv"><span>Usable points</span><b>28</b></div>
+    <div class="kv"><span>Room coverage</span><b>64%</b></div>
+    <div class="kv"><span>PDQ hash distance</span><b>31 — misses this edit</b></div>
+  </div>
+  <div class="verdict v-amber">
+    <span class="pill p-amber">Cannot determine</span>
+    <h3 style="margin-top:8px">Same room, different photo.</h3>
+    <p class="sub" style="font-size:15px">34% alignment. The camera moved, so we will not accuse based on this.</p>
+    <div class="kv"><span>Alignment</span><b>34% · 9 of 26 points</b></div>
+    <div class="kv"><span>Usable points</span><b>26</b></div>
+    <div class="kv"><span>Room coverage</span><b>58%</b></div>
+    <div class="kv"><span>PDQ hash distance</span><b>44 — misses this edit</b></div>
+  </div>
+  <div class="verdict v-amber">
+    <span class="pill p-amber">Cannot determine</span>
+    <h3 style="margin-top:8px">Tight crop — not enough room visible.</h3>
+    <p class="sub" style="font-size:15px">Only 3 usable points. Saying anything more would be guessing.</p>
+    <div class="kv"><span>Alignment</span><b>—</b></div>
+    <div class="kv"><span>Usable points</span><b>3</b></div>
+    <div class="kv"><span>Room coverage</span><b>9%</b></div>
+    <div class="kv"><span>PDQ hash distance</span><b>52 — misses this edit</b></div>
+  </div>
+  <div class="verdict v-grey">
+    <span class="pill p-grey">No link found</span>
+    <h3 style="margin-top:8px">This photo does not come from your original.</h3>
+    <div class="kv"><span>Alignment</span><b>18% · 5 of 27 points</b></div>
+    <div class="kv"><span>Usable points</span><b>27</b></div>
+    <div class="kv"><span>Room coverage</span><b>61%</b></div>
+    <div class="kv"><span>PDQ hash distance</span><b>48 — misses this edit</b></div>
+  </div>
+  <div class="verdict v-amber">
+    <span class="pill p-amber">Cannot determine</span>
+    <h3 style="margin-top:8px">Background looks replaced.</h3>
+    <p class="sub" style="font-size:15px">Room matching cannot prove source here. A sealed identity claim still can.</p>
+    <a class="btn btn-sec btn-sm" href="#" onclick="return false">Switch to Sealed Identity Claim</a>
+  </div>
+  <details><summary>What Stillpoint CANNOT do</summary>
+    <ul class="plain"><li>No background visible = no source proof.</li><li>Headshot only = Cannot Determine.</li><li>We cannot tell you who made the edit.</li></ul>
+  </details>
+  <div class="device-note"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a9b4c7" stroke-width="2.2" stroke-linecap="round"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18.5h2"/></svg>Computed on your device</div>
+</section>
+<!-- 5 · PROOF -->
+<section class="screen" data-title="5 · Proof">
+  <h1>Proof, not photos</h1>
+  <p class="sub">A drawing of the room lineup. No real photos travel with this report.</p>
+  <div class="photo" role="img" aria-label="Side by side room diagrams with green alignment lines">
+    <svg viewBox="0 0 400 260">
+      <rect width="400" height="260" fill="#101a30"/>
+      <text x="24" y="24" fill="#a9b4c7" font-size="13">YOUR ORIGINAL · map</text>
+      <text x="224" y="24" fill="#a9b4c7" font-size="13">SUSPECT · map</text>
+      <g fill="#2a3c66" stroke="#4a9eff" stroke-width="1.5">
+        <rect x="24" y="130" width="130" height="70" rx="6"/><rect x="224" y="130" width="130" height="70" rx="6"/>
+        <rect x="50" y="45" width="70" height="55" rx="6"/><rect x="250" y="45" width="70" height="55" rx="6"/>
+        <rect x="130" y="45" width="30" height="120" rx="6"/><rect x="330" y="45" width="30" height="120" rx="6"/>
+        <rect x="40" y="208" width="100" height="22" rx="6"/><rect x="240" y="208" width="100" height="22" rx="6"/>
+      </g>
+      <g fill="#a9b4c7" font-size="11"><text x="70" y="170">bed</text><text x="270" y="170">bed</text><text x="58" y="78">poster</text><text x="258" y="78">poster</text></g>
+      <g stroke="#2fbf71" stroke-width="2">
+        <line x1="154" y1="72" x2="224" y2="72"/><line x1="154" y1="165" x2="224" y2="165"/>
+        <line x1="160" y1="105" x2="224" y2="105"/><line x1="140" y1="219" x2="224" y2="219"/>
+      </g>
+      <rect x="70" y="90" width="34" height="110" rx="4" fill="#000"/><rect x="270" y="90" width="34" height="110" rx="4" fill="#000"/>
+    </svg>
+  </div>
+  <div class="card">
+    <b>In plain words</b>
+    <p class="sub" style="font-size:15.5px">These line up from the same viewpoint. A different photo of this same room did not line up.</p>
+  </div>
+  <div class="card">
+    <b>What this proof does NOT show</b>
+    <p class="sub" style="font-size:15px;margin-bottom:0">Who made the edit · whether it is sexual · background-swapped versions.</p>
+  </div>
+  <div class="card">
+    <div class="row"><b class="grow">Sealed attestation</b><span class="pill p-green">2 of 3 verifiers</span></div>
+    <div class="kv"><span>Intimate content</span><b>Yes</b></div>
+    <div class="kv"><span>Identity match</span><b>Yes</b></div>
+    <div class="kv"><span>Non-consent signed</span><b>Yes</b></div>
+    <p class="cap">Verified without human viewing.</p>
+  </div>
+  <a class="btn btn-pri" href="#" onclick="return false">Copy Summary</a>
+  <a class="btn btn-sec" href="#" onclick="return false">Request Expedited Review</a>
+  <div class="device-note"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a9b4c7" stroke-width="2.2" stroke-linecap="round"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18.5h2"/></svg>Computed on your device</div>
+</section>
+<!-- 6 · SELF TEST -->
+<section class="screen" data-title="6 · Self-test">
+  <h1>Attack my photo</h1>
+  <p class="sub">Only you can test your own protected photo. See what your protection survives.</p>
+  <a class="btn btn-sec" href="#" onclick="return false">Simulate Zoom 50%</a>
+  <a class="btn btn-sec" href="#" onclick="return false">Screenshot + JPEG</a>
+  <a class="btn btn-sec" href="#" onclick="return false">Color Filter</a>
+  <a class="btn btn-sec" href="#" onclick="return false">AI Repaint</a>
+  <a class="btn btn-sec" href="#" onclick="return false">Replace Background</a>
+  <h3>Results</h3>
+  <div class="attack"><span class="pill p-green">Protected</span><div class="grow"><b>Screenshot + JPEG</b><small>26 of 28 points still line up</small></div></div>
+  <div class="attack"><span class="pill p-green">Protected</span><div class="grow"><b>Color filter</b><small>We ignore color — layout still lines up</small></div></div>
+  <div class="attack"><span class="pill p-amber">Weak</span><div class="grow"><b>Zoom 50%</b><small>11 of 28 points left — borderline</small></div></div>
+  <div class="attack"><span class="pill p-amber">Weak</span><div class="grow"><b>AI repaint</b><small>Shapes shifted slightly — review needed</small></div></div>
+  <div class="attack"><span class="pill p-grey">Not protected</span><div class="grow"><b>Background replaced</b><small>Room is gone — nothing to match</small></div></div>
+  <div class="banner">We cannot prove source if the background is replaced. Use the sealed identity claim instead.</div>
+  <div class="device-note"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a9b4c7" stroke-width="2.2" stroke-linecap="round"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18.5h2"/></svg>Computed on your device</div>
+</section>
+<!-- 7 · TRUST -->
+<section class="screen" data-title="7 · Trust">
+  <h1>Four keys. All must pass.</h1>
+  <p class="sub">One match is never enough to act against someone. Every key below must pass first.</p>
+  <div class="keys">
+    <div class="key"><span class="kn">1</span><div><b>Proof of Possession</b><p>You hold the real original on your own phone.</p></div></div>
+    <div class="key"><span class="kn">2</span><div><b>Proof of Presence</b><p>A live 5-second room pan proves you were there.</p></div></div>
+    <div class="key"><span class="kn">3</span><div><b>Proof of Person</b><p>A sealed live check answers Yes or No, then deletes itself in seconds.</p></div></div>
+    <div class="key"><span class="kn">4</span><div><b>Proof of Non-Consent</b><p>You sign a statement that this was shared without your permission.</p></div></div>
+  </div>
+  <div class="banner blue">Rule: a background match alone can only warn. It can NEVER remove or punish.</div>
+  <div class="card">
+    <b>Safety valves</b>
+    <div class="checkline"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" stroke-width="2.4" stroke-linecap="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg><span><b>Conflict Freeze</b> — if two people claim the same photo, everything pauses for human review.</span></div>
+    <div class="checkline"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" stroke-width="2.4" stroke-linecap="round"><path d="M4 13l5 5L20 7"/></svg><span><b>2-of-3 verifiers</b> — no single reviewer can approve action alone.</span></div>
+  </div>
+  <a class="btn btn-ghost" href="#" onclick="return false">Appeal / Counter-Notice</a>
+  <details><summary>What Stillpoint CANNOT do</summary>
+    <ul class="plain"><li>No background = no source proof.</li><li>Headshot only = Cannot Determine.</li><li>Cannot identify who made the edit.</li></ul>
+  </details>
+  <div class="device-note"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a9b4c7" stroke-width="2.2" stroke-linecap="round"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18.5h2"/></svg>Computed on your device</div>
+  <footer>Stillpoint mockups · calm, private, honest by design.<br>Placeholder art only — no real people shown.</footer>
+</section>
+</div>
+<script>
+const screens=[...document.querySelectorAll('.screen')];
+const nav=document.getElementById('nav');
+screens.forEach((s,i)=>{
+  const b=document.createElement('button');
+  b.textContent=s.dataset.title; b.setAttribute('aria-current', i===0?'true':'false');
+  b.onclick=()=>{screens.forEach(x=>x.classList.remove('on'));s.classList.add('on');
+    [...nav.children].forEach(x=>x.setAttribute('aria-current','false'));
+    b.setAttribute('aria-current','true');window.scrollTo({top:0});};
+  nav.appendChild(b);
+});
+</script>
+</body>
+</html>
