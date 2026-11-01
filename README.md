@@ -1,29 +1,39 @@
 # Stillpoint
 
-Stillpoint links a regenerated derivative back to its source photo by checking if the background aligns from the exact same camera position — not just the same room.
+Stillpoint compares background scene graphs to see whether two layouts share a camera viewpoint. It does not identify a face, store a face, or decide that someone did something wrong.
 
-## What is real vs mocked
+Background alignment alone cannot establish the identity of the depicted person, consent, or wrongdoing. A background match alone cannot trigger automatic punishment or removal.
 
-Real:
+## What is real
 
-- `backend/align.py` center-distance comparison with usable / aligned / agreement scoring.
-- `eval/killtest.py` harness that runs graph1 vs graph2 and graph1 vs graph3.
-- Sample scene graphs in `sample_data/` and the Scene Graph prompt in `prompts/`.
+- `backend/align.py` compares named background objects by center distance.
+- A shared object is aligned when its center moves fewer than 25 units on a 0–1000 scale.
+- With at least 4 shared objects, 80% or more aligned is `Likely derivative`. 40% or less is `No link found`. Every other result is `Cannot determine`.
+- Person-named objects (`person`, `face`, `body`, `hair`, `skin`, `clothes`, `head`) are dropped before scoring.
+- `eval/killtest.py` and `eval/test_align.py` exercise the sample graphs.
+- The web app ports that same function and checks the sample numbers in `frontend`.
+- Optional local API: `python -m backend.server` on `127.0.0.1:8787`. It accepts scene graphs only and refuses image fields. The app does not call it unless Settings turns that on.
 
-Mocked (not built yet):
+## What is not built
 
-- SAM 3.1 person removal, live Muse Wonder scene-graph calls, and Muse Image attack tests.
-- No frontend, no database, no stored faces, no face recognition.
+- Extracting a scene graph from a photograph.
+- Person segmentation, room scan, image-attack generation, perceptual hashing, and sealed identity verification.
+- Any upload of photographs. The interface can hold an original photo in memory long enough to draw a mask, then discards it. Saved records are scene graphs, mask rectangles, and file hashes.
 
-## Backend Kill Test - Round 1
-Stillpoint compares background scene graphs by alignment, not color or exact pixels.
-- Likely derivative: 80% or more points align in place
-- No link found: 40% or less align
-- Cannot determine: everything else
+Sample graphs in `sample_data/` are synthetic. The homepage room is an illustration, not an analysis.
 
-Run the test:
+## Run the checks
+
+```text
+python eval/test_align.py
 python eval/killtest.py
+```
 
-What is real vs mocked:
-- Real: alignment math in backend/align.py, sample scene graphs, decision rules
-- Mocked / To be built: SAM 3.1 masking, Muse Wonder live scene graph extraction, Muse Image attack generation, frontend, proof renderer
+```text
+cd frontend
+npm install
+npm test
+npm run dev
+```
+
+The app is at `http://127.0.0.1:5173`.
