@@ -32,6 +32,8 @@ export type AlignResult = {
   mean_residual: number | null
   alignment_threshold: number
   excluded_person_objects: number
+  invalid_objects: number
+  duplicate_objects: number
   source_coverage_percent: number | null
   suspect_coverage_percent: number | null
 }

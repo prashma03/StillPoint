@@ -1,13 +1,20 @@
 /**
  * On-device port of backend/align.py.
  * Verdict strings and thresholds must stay identical to the Python engine.
+ * This engine measures background-layout agreement only. It does not prove
+ * image derivation, identity, or consent.
  */
 import type { AlignResult, RoomObject, SceneGraph, Verdict } from './types'
 
 export const ALIGN_DISTANCE = 25
-export const MIN_USABLE_FOR_DERIVATIVE = 4
+export const MIN_USABLE_FOR_VERDICT = 4
+/** Kept for backward compatibility; identical to MIN_USABLE_FOR_VERDICT. */
+export const MIN_USABLE_FOR_DERIVATIVE = MIN_USABLE_FOR_VERDICT
 export const DERIVATIVE_AGREEMENT = 80
 export const NO_LINK_AGREEMENT = 40
+
+export const COORD_MIN = 0
+export const COORD_MAX = 1000
 
 export const FORBIDDEN_NAMES = new Set([
   'person',
@@ -35,18 +42,61 @@ export function getCenter(obj: RoomObject): [number, number] {
   return [obj.x + obj.width / 2, obj.y + obj.height / 2]
 }
 
-function splitPeople(graph: SceneGraph): { kept: RoomObject[]; excluded: number } {
-  const kept: RoomObject[] = []
+/** Canonical form is trimmed and lowercased; anything else is invalid. */
+function normalizeName(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const name = value.trim().toLowerCase()
+  return name || null
+}
+
+function isValidCoord(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= COORD_MIN && value <= COORD_MAX
+}
+
+function isValidObject(obj: RoomObject): boolean {
+  return isValidCoord(obj.x) && isValidCoord(obj.y) && isValidCoord(obj.width) && isValidCoord(obj.height)
+}
+
+type Prepared = {
+  objects: Map<string, RoomObject>
+  excluded: number
+  invalid: number
+  duplicates: number
+}
+
+function prepareObjects(graph: SceneGraph): Prepared {
+  const objects = new Map<string, RoomObject>()
   let excluded = 0
-  for (const obj of graph.room_objects ?? []) {
-    const name = String(obj.name ?? '').trim().toLowerCase()
+  let invalid = 0
+  let duplicates = 0
+  const items = (graph as { room_objects?: unknown } | null)?.room_objects
+  if (!Array.isArray(items)) return { objects, excluded, invalid, duplicates }
+  for (const item of items) {
+    if (!item || typeof item !== 'object') {
+      invalid += 1
+      continue
+    }
+    const obj = item as RoomObject
+    const name = normalizeName(obj.name)
+    if (name === null) {
+      invalid += 1
+      continue
+    }
     if (FORBIDDEN_NAMES.has(name)) {
       excluded += 1
       continue
     }
-    kept.push(obj)
+    if (!isValidObject(obj)) {
+      invalid += 1
+      continue
+    }
+    if (objects.has(name)) {
+      duplicates += 1
+      continue
+    }
+    objects.set(name, obj)
   }
-  return { kept, excluded }
+  return { objects, excluded, invalid, duplicates }
 }
 
 function coverage(graph: SceneGraph): number | null {
@@ -57,22 +107,18 @@ function coverage(graph: SceneGraph): number | null {
 }
 
 export function compareGraphs(graph1: SceneGraph, graph2: SceneGraph): AlignResult {
-  const first = splitPeople(graph1)
-  const second = splitPeople(graph2)
-  const objects1 = new Map<string, RoomObject>()
-  const objects2 = new Map<string, RoomObject>()
-  for (const obj of first.kept) objects1.set(obj.name, obj)
-  for (const obj of second.kept) objects2.set(obj.name, obj)
+  const first = prepareObjects(graph1)
+  const second = prepareObjects(graph2)
 
-  const commonNames = [...objects1.keys()].filter((name) => objects2.has(name))
+  const commonNames = [...first.objects.keys()].filter((name) => second.objects.has(name))
   const usablePoints = commonNames.length
   let alignedPoints = 0
   const residuals = []
   const rawDistances: number[] = []
 
   for (const name of commonNames) {
-    const [cx1, cy1] = getCenter(objects1.get(name)!)
-    const [cx2, cy2] = getCenter(objects2.get(name)!)
+    const [cx1, cy1] = getCenter(first.objects.get(name)!)
+    const [cx2, cy2] = getCenter(second.objects.get(name)!)
     const distance = Math.hypot(cx1 - cx2, cy1 - cy2)
     rawDistances.push(distance)
     const aligned = distance < ALIGN_DISTANCE
@@ -92,9 +138,9 @@ export function compareGraphs(graph1: SceneGraph, graph2: SceneGraph): AlignResu
   }
 
   let verdict: Verdict
-  if (usablePoints >= MIN_USABLE_FOR_DERIVATIVE && agreement >= DERIVATIVE_AGREEMENT) {
+  if (usablePoints >= MIN_USABLE_FOR_VERDICT && agreement >= DERIVATIVE_AGREEMENT) {
     verdict = 'Likely derivative'
-  } else if (agreement <= NO_LINK_AGREEMENT) {
+  } else if (usablePoints >= MIN_USABLE_FOR_VERDICT && agreement <= NO_LINK_AGREEMENT) {
     verdict = 'No link found'
   } else {
     verdict = 'Cannot determine'
@@ -109,6 +155,8 @@ export function compareGraphs(graph1: SceneGraph, graph2: SceneGraph): AlignResu
     mean_residual: meanResidual,
     alignment_threshold: ALIGN_DISTANCE,
     excluded_person_objects: first.excluded + second.excluded,
+    invalid_objects: first.invalid + second.invalid,
+    duplicate_objects: first.duplicates + second.duplicates,
     source_coverage_percent: coverage(graph1),
     suspect_coverage_percent: coverage(graph2),
   }

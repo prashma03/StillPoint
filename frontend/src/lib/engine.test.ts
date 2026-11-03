@@ -57,6 +57,214 @@ describe('alignment parity with backend/align.py', () => {
   })
 })
 
+describe('comparison safety', () => {
+  it('returns Cannot determine when nothing overlaps', () => {
+    const source = {
+      room_objects: [
+        { name: 'bed', x: 100, y: 450, width: 380, height: 300 },
+        { name: 'poster', x: 180, y: 150, width: 200, height: 150 },
+      ],
+    }
+    const suspect = {
+      room_objects: [
+        { name: 'curtain', x: 40, y: 40, width: 220, height: 320 },
+        { name: 'lamp', x: 640, y: 180, width: 90, height: 180 },
+      ],
+    }
+    const result = compareGraphs(source, suspect)
+    expect(result.usable_points).toBe(0)
+    expect(result.aligned_points).toBe(0)
+    expect(result.agreement_percent).toBe(0)
+    expect(result.mean_residual).toBeNull()
+    expect(result.residuals).toEqual([])
+    expect(result.verdict).toBe('Cannot determine')
+  })
+
+  it('requires enough correspondences for any decisive verdict', () => {
+    const aligned = {
+      room_objects: [
+        { name: 'bed', x: 100, y: 450, width: 380, height: 300 },
+        { name: 'poster', x: 180, y: 150, width: 200, height: 150 },
+        { name: 'door', x: 750, y: 200, width: 180, height: 450 },
+      ],
+    }
+    const threeAligned = compareGraphs(aligned, aligned)
+    expect(threeAligned.usable_points).toBe(3)
+    expect(threeAligned.agreement_percent).toBe(100)
+    expect(threeAligned.verdict).toBe('Cannot determine')
+
+    const moved = {
+      room_objects: [
+        { name: 'bed', x: 500, y: 100, width: 380, height: 300 },
+        { name: 'poster', x: 600, y: 600, width: 200, height: 150 },
+        { name: 'door', x: 100, y: 100, width: 180, height: 450 },
+      ],
+    }
+    const threeMissed = compareGraphs(aligned, moved)
+    expect(threeMissed.aligned_points).toBe(0)
+    expect(threeMissed.verdict).toBe('Cannot determine')
+  })
+
+  it('links identical graphs only with enough evidence', () => {
+    const identical = compareGraphs(sampleOriginal, sampleOriginal)
+    expect(identical.usable_points).toBe(4)
+    expect(identical.aligned_points).toBe(4)
+    expect(identical.agreement_percent).toBe(100)
+    expect(identical.mean_residual).toBe(0)
+    expect(identical.verdict).toBe('Likely derivative')
+
+    const small = { room_objects: [{ name: 'bed', x: 100, y: 450, width: 380, height: 300 }] }
+    expect(compareGraphs(small, small).verdict).toBe('Cannot determine')
+  })
+
+  it('rejects fully mismatched graphs with enough evidence', () => {
+    const moved = {
+      room_objects: [
+        { name: 'bed', x: 500, y: 100, width: 380, height: 300 },
+        { name: 'poster', x: 600, y: 600, width: 200, height: 150 },
+        { name: 'door', x: 100, y: 100, width: 180, height: 450 },
+        { name: 'rug', x: 600, y: 100, width: 400, height: 150 },
+      ],
+    }
+    const result = compareGraphs(sampleOriginal, moved)
+    expect(result.usable_points).toBe(4)
+    expect(result.aligned_points).toBe(0)
+    expect(result.agreement_percent).toBe(0)
+    expect(result.verdict).toBe('No link found')
+  })
+
+  it('passes coverage through without inventing it', () => {
+    expect(compareGraphs(sampleOriginal, sampleDerivative).suspect_coverage_percent).toBeNull()
+    const withCoverage = { ...sampleOriginal, coverage_percent: 42 }
+    const result = compareGraphs(withCoverage, sampleDerivative)
+    expect(result.source_coverage_percent).toBe(42)
+    expect(result.suspect_coverage_percent).toBeNull()
+  })
+
+  it('excludes person names case-insensitively but keeps near-misses', () => {
+    const source = {
+      room_objects: [
+        { name: '  Face ', x: 0, y: 0, width: 40, height: 40 },
+        { name: 'PERSON', x: 10, y: 10, width: 40, height: 40 },
+        { name: 'bed', x: 100, y: 450, width: 380, height: 300 },
+      ],
+    }
+    const suspect = {
+      room_objects: [
+        { name: 'bed', x: 100, y: 450, width: 380, height: 300 },
+        { name: 'Body', x: 10, y: 10, width: 20, height: 80 },
+      ],
+    }
+    const result = compareGraphs(source, suspect)
+    expect(result.excluded_person_objects).toBe(3)
+    expect(result.residuals.map((item) => item.name)).toEqual(['bed'])
+
+    const wardrobe = {
+      room_objects: [
+        { name: 'wardrobe', x: 100, y: 100, width: 100, height: 200 },
+        { name: 'headboard', x: 300, y: 100, width: 100, height: 200 },
+      ],
+    }
+    const nearMiss = compareGraphs(wardrobe, wardrobe)
+    expect(nearMiss.excluded_person_objects).toBe(0)
+    expect(nearMiss.usable_points).toBe(2)
+
+    const people = { room_objects: [{ name: 'face', x: 0, y: 0, width: 40, height: 40 }] }
+    const peopleOnly = compareGraphs(people, people)
+    expect(peopleOnly.usable_points).toBe(0)
+    expect(peopleOnly.verdict).toBe('Cannot determine')
+  })
+
+  it('normalizes names and keeps the first duplicate', () => {
+    const source = {
+      room_objects: [
+        { name: 'Bed', x: 100, y: 450, width: 380, height: 300 },
+        { name: '  POSTER  ', x: 180, y: 150, width: 200, height: 150 },
+      ],
+    }
+    const suspect = {
+      room_objects: [
+        { name: 'bed', x: 102, y: 451, width: 380, height: 300 },
+        { name: 'poster', x: 181, y: 149, width: 200, height: 150 },
+      ],
+    }
+    const normalized = compareGraphs(source, suspect)
+    expect(normalized.usable_points).toBe(2)
+    expect(normalized.residuals.map((item) => item.name)).toEqual(['bed', 'poster'])
+
+    const duplicated = {
+      room_objects: [
+        { name: 'bed', x: 100, y: 450, width: 380, height: 300 },
+        { name: 'Bed', x: 900, y: 900, width: 50, height: 50 },
+      ],
+    }
+    const single = { room_objects: [{ name: 'bed', x: 102, y: 451, width: 380, height: 300 }] }
+    const duplicateResult = compareGraphs(duplicated, single)
+    expect(duplicateResult.usable_points).toBe(1)
+    expect(duplicateResult.duplicate_objects).toBe(1)
+    expect(duplicateResult.aligned_points).toBe(1)
+  })
+
+  it('skips invalid coordinates instead of crashing', () => {
+    const source = {
+      room_objects: [
+        { name: 'bed', x: 100, y: 450, width: 380, height: 300 },
+        { name: 'poster', x: -5, y: 150, width: 200, height: 150 },
+        { name: 'door', x: 750, y: 200, width: 180, height: 4500 },
+        { name: 'rug', x: 150, y: 700, width: 400 },
+        { name: 'desk', x: 'far', y: 100, width: 100, height: 100 },
+        { name: '', x: 10, y: 10, width: 10, height: 10 },
+        'not-an-object',
+        { name: 'shelf', x: Number.NaN, y: 10, width: 10, height: 10 },
+        { name: 'chair', x: Number.POSITIVE_INFINITY, y: 10, width: 10, height: 10 },
+      ],
+    } as unknown as Parameters<typeof compareGraphs>[0]
+    const suspect = {
+      room_objects: [{ name: 'bed', x: 100, y: 450, width: 380, height: 300 }],
+    }
+    const result = compareGraphs(source, suspect)
+    expect(result.usable_points).toBe(1)
+    expect(result.invalid_objects).toBe(8)
+    expect(result.verdict).toBe('Cannot determine')
+  })
+
+  it('accepts edge coordinates and rejects out-of-range ones', () => {
+    const edge = {
+      room_objects: [
+        { name: 'a', x: 0, y: 0, width: 0, height: 0 },
+        { name: 'b', x: 1000, y: 1000, width: 0, height: 0 },
+      ],
+    }
+    const edgeResult = compareGraphs(edge, edge)
+    expect(edgeResult.usable_points).toBe(2)
+    expect(edgeResult.invalid_objects).toBe(0)
+
+    const outside = {
+      room_objects: [
+        { name: 'a', x: -1, y: 0, width: 10, height: 10 },
+        { name: 'b', x: 0, y: 1001, width: 10, height: 10 },
+      ],
+    }
+    const outsideResult = compareGraphs(outside, outside)
+    expect(outsideResult.usable_points).toBe(0)
+    expect(outsideResult.invalid_objects).toBe(4)
+    expect(outsideResult.verdict).toBe('Cannot determine')
+  })
+
+  it('handles malformed graphs without crashing', () => {
+    const empty = {} as unknown as Parameters<typeof compareGraphs>[0]
+    expect(compareGraphs(empty, empty).verdict).toBe('Cannot determine')
+    const nullList = { room_objects: null } as unknown as Parameters<typeof compareGraphs>[0]
+    expect(compareGraphs(nullList, sampleOriginal).usable_points).toBe(0)
+  })
+
+  it('reports zero rejects for the clean samples', () => {
+    const result = compareGraphs(sampleOriginal, sampleDerivative)
+    expect(result.invalid_objects).toBe(0)
+    expect(result.duplicate_objects).toBe(0)
+  })
+})
+
 describe('wording', () => {
   it('uses the product sentences for each real branch', () => {
     expect(present(compareGraphs(sampleOriginal, sampleDerivative)).summary).toBe(
@@ -154,7 +362,7 @@ describe('protection tests', () => {
     expect(byId.screenshot.result).toBeNull()
     expect(byId.color.result).toBeNull()
     expect(byId.repaint.result).toBeNull()
-    expect(byId.background.result?.verdict).toBe('No link found')
+    expect(byId.background.result?.verdict).toBe('Cannot determine')
   })
 })
 

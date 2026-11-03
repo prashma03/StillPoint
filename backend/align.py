@@ -6,18 +6,30 @@ Verdict strings are part of the product contract:
 - "Cannot determine"
 
 Person-named objects are dropped before scoring. They are never reference points.
+
+This engine measures background-layout agreement only. It does not prove image
+derivation, identity, or consent.
 """
 
 import math
 
 # A center that stays within this many units on a 0–1000 scale counts as aligned.
 ALIGN_DISTANCE = 25
+# Both a positive and a negative verdict need this many shared background
+# objects. Anything less is insufficient evidence ("Cannot determine").
 # The starter sample uses 4 shared objects. A later model may require more.
-MIN_USABLE_FOR_DERIVATIVE = 4
+MIN_USABLE_FOR_VERDICT = 4
+# Kept for backward compatibility; identical to MIN_USABLE_FOR_VERDICT.
+MIN_USABLE_FOR_DERIVATIVE = MIN_USABLE_FOR_VERDICT
 DERIVATIVE_AGREEMENT = 80
 NO_LINK_AGREEMENT = 40
 
-# Exact names only. "wardrobe" and "headboard" must not match.
+# Valid range for x, y, width, and height on the 0–1000 scene-graph scale.
+COORD_MIN = 0
+COORD_MAX = 1000
+
+# Exact names only (after trimming and lowercasing).
+# "wardrobe" and "headboard" must not match.
 FORBIDDEN_NAMES = {
     "person",
     "face",
@@ -42,25 +54,95 @@ def get_center(obj):
     return (center_x, center_y)
 
 
-def _split_people(graph):
-    """Return (kept objects, count of person-named objects removed)."""
-    kept = []
+def _normalize_name(value):
+    """Return the canonical object name, or None when it is not usable.
+
+    Canonical form is trimmed and lowercased, so "Bed", "bed", and " BED "
+    all match. Non-string, empty, and whitespace-only names are invalid.
+    """
+    if not isinstance(value, str):
+        return None
+    name = value.strip().lower()
+    return name or None
+
+
+def _is_valid_number(value):
+    """Return True for a finite int/float coordinate (bools excluded)."""
+    if isinstance(value, bool):
+        return False
+    if not isinstance(value, (int, float)):
+        return False
+    return math.isfinite(value)
+
+
+def _is_valid_coords(obj):
+    """Return True when x, y, width, height are finite and within range."""
+    for key in ("x", "y", "width", "height"):
+        value = obj.get(key)
+        if not _is_valid_number(value):
+            return False
+        if value < COORD_MIN or value > COORD_MAX:
+            return False
+    return True
+
+
+def _prepare_objects(graph):
+    """Validate one graph into an ordered name -> object lookup.
+
+    Returns (objects, excluded_people, invalid, duplicates):
+    - objects: dict keyed by normalized name, first occurrence wins.
+    - excluded_people: count of person-named objects removed.
+    - invalid: count of objects with unusable names or coordinates.
+    - duplicates: count of repeated normalized names beyond the first.
+    """
+    if not isinstance(graph, dict):
+        return {}, 0, 0, 0
+    items = graph.get("room_objects", [])
+    if not isinstance(items, list):
+        return {}, 0, 0, 0
+    objects = {}
     excluded = 0
-    for obj in graph.get("room_objects", []):
-        name = str(obj.get("name", "")).strip().lower()
+    invalid = 0
+    duplicates = 0
+    for obj in items:
+        if not isinstance(obj, dict):
+            invalid += 1
+            continue
+        name = _normalize_name(obj.get("name"))
+        if name is None:
+            invalid += 1
+            continue
         if name in FORBIDDEN_NAMES:
             excluded += 1
             continue
-        kept.append(obj)
-    return kept, excluded
+        if not _is_valid_coords(obj):
+            invalid += 1
+            continue
+        if name in objects:
+            duplicates += 1
+            continue
+        objects[name] = obj
+    return objects, excluded, invalid, duplicates
+
+
+def _split_people(graph):
+    """Return (kept objects, count of person-named objects removed).
+
+    Kept for backward compatibility. Prefer _prepare_objects, which also
+    normalizes names and rejects invalid coordinates and duplicates.
+    """
+    objects, excluded, _, _ = _prepare_objects(graph)
+    return list(objects.values()), excluded
 
 
 def _coverage(graph):
     """Return coverage_percent only when the graph actually includes one."""
-    if "coverage_percent" not in graph:
+    if not isinstance(graph, dict) or "coverage_percent" not in graph:
         return None
     value = graph.get("coverage_percent")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
 
@@ -78,19 +160,14 @@ def compare_graphs(graph1, graph2):
     Extra fields describe the same comparison. They are measurements,
     not a confidence score.
     """
-    list1, excluded1 = _split_people(graph1)
-    list2, excluded2 = _split_people(graph2)
+    objects1, excluded1, invalid1, duplicates1 = _prepare_objects(graph1)
+    objects2, excluded2, invalid2, duplicates2 = _prepare_objects(graph2)
 
-    # a) Build name -> object lookups so we can match by name.
-    # Duplicate names keep the last object, matching dict assignment order.
-    objects1 = {obj["name"]: obj for obj in list1}
-    objects2 = {obj["name"]: obj for obj in list2}
-
-    # b) Only objects present in BOTH graphs can be scored.
+    # Only objects present in BOTH graphs can be scored, in source order.
     common_names = [name for name in objects1 if name in objects2]
     usable_points = len(common_names)
 
-    # c) + d) Compare centers for each common object.
+    # Compare centers for each common object.
     aligned_points = 0
     residuals = []
     raw_distances = []
@@ -116,7 +193,7 @@ def compare_graphs(graph1, graph2):
             }
         )
 
-    # f) Share of usable objects that aligned (0 when nothing matched).
+    # Share of usable objects that aligned (0 when nothing matched).
     if usable_points > 0:
         agreement_percent = aligned_points / usable_points * 100
         mean_residual = round(sum(raw_distances) / usable_points, 2)
@@ -124,13 +201,18 @@ def compare_graphs(graph1, graph2):
         agreement_percent = 0
         mean_residual = None
 
-    # g) Verdict rules. Only these 3 verdicts are ever allowed.
+    # Verdict rules. Only these 3 verdicts are ever allowed.
+    # Both directions require enough shared background objects; anything
+    # less is insufficient evidence, never a negative verdict.
     if (
-        usable_points >= MIN_USABLE_FOR_DERIVATIVE
+        usable_points >= MIN_USABLE_FOR_VERDICT
         and agreement_percent >= DERIVATIVE_AGREEMENT
     ):
         verdict = "Likely derivative"
-    elif agreement_percent <= NO_LINK_AGREEMENT:
+    elif (
+        usable_points >= MIN_USABLE_FOR_VERDICT
+        and agreement_percent <= NO_LINK_AGREEMENT
+    ):
         verdict = "No link found"
     else:
         verdict = "Cannot determine"
@@ -144,6 +226,8 @@ def compare_graphs(graph1, graph2):
         "mean_residual": mean_residual,
         "alignment_threshold": ALIGN_DISTANCE,
         "excluded_person_objects": excluded1 + excluded2,
+        "invalid_objects": invalid1 + invalid2,
+        "duplicate_objects": duplicates1 + duplicates2,
         "source_coverage_percent": _coverage(graph1),
         "suspect_coverage_percent": _coverage(graph2),
     }
