@@ -25,5 +25,9 @@ export function buildSample(kind: 'derivative' | 'moved'): CaseRecord {
     sourceGraph: sampleOriginal,
     suspectGraph: suspect,
     pythonNote: null,
+    sourceOrigin: 'manual',
+    suspectOrigin: 'manual',
+    sourceModel: null,
+    suspectModel: null,
   }
 }

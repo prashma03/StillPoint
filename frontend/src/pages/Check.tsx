@@ -1,13 +1,18 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { AIAssist } from '../components/AIAssist'
+import { ProposalAssist } from '../components/ProposalAssist'
+import { SegmentAssist } from '../components/SegmentAssist'
 import { useCaseRecord } from '../components/case'
 import { Button, PageHeader, usePageTitle } from '../components/ui'
+import type { SegmentRect } from '../lib/ai'
 import { runCheck } from '../lib/check'
 import { verifyWithPython } from '../lib/engine'
 import { sha256 } from '../lib/hash'
 import { readGraph } from '../lib/graphs'
+import { mergeRectsToMask } from '../lib/segment'
 import { sceneStore, settingsStore } from '../lib/storage'
-import type { SceneGraph, StageUpdate } from '../lib/types'
+import type { MappingOrigin, Mask, RoomObject, SceneGraph, StageUpdate } from '../lib/types'
 
 type SuspectHold = {
   name: string
@@ -32,6 +37,31 @@ export function Check() {
   const [running, setRunning] = useState(false)
   const [over, setOver] = useState(false)
   const blind = settings.blindMode
+  // Suspect-photo mapping. The photo is shown only with Blind Mode off plus
+  // an explicit acknowledgment, and only after a person mask is confirmed.
+  const [suspectFile, setSuspectFile] = useState<File | null>(null)
+  const [viewAck, setViewAck] = useState(false)
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const [photoMask, setPhotoMask] = useState<Mask>({ x: 0.34, y: 0.1, w: 0.32, h: 0.72 })
+  const [photoMaskConfirmed, setPhotoMaskConfirmed] = useState(false)
+  const [suggested, setSuggested] = useState<SegmentRect[] | null>(null)
+  const [photoGraph, setPhotoGraph] = useState<SceneGraph | null>(null)
+  const [photoOrigin, setPhotoOrigin] = useState<MappingOrigin>('manual')
+  const [photoModel, setPhotoModel] = useState<string | null>(null)
+  const [photoNote, setPhotoNote] = useState('')
+  const photoFrameRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => () => {
+    if (photoUrl) URL.revokeObjectURL(photoUrl)
+  }, [photoUrl])
+
+  useEffect(() => {
+    if (blind) {
+      setViewAck(false)
+      if (photoUrl) URL.revokeObjectURL(photoUrl)
+      setPhotoUrl(null)
+    }
+  }, [blind, photoUrl])
 
   const selected = scenes.find((scene) => scene.id === sourceId) ?? null
   const activeSource = sourceGraph ?? selected?.graph ?? null
@@ -59,6 +89,7 @@ export function Check() {
           return
         }
         setSuspect({ name: file.name, hash, graph: parsed.graph, kind: 'graph' })
+        resetPhotoMapping(null)
         return
       } catch {
         setError('That file is not a scene graph.')
@@ -67,10 +98,97 @@ export function Check() {
     }
     if (file.type.startsWith('image/')) {
       setSuspect({ name: file.name, hash, graph: null, kind: 'image' })
+      resetPhotoMapping(file)
       return
     }
     setSuspect({ name: file.name, hash, graph: null, kind: 'other' })
+    resetPhotoMapping(null)
     setError('Use a scene graph JSON file. Other files stay sealed and cannot be compared.')
+  }
+
+  function resetPhotoMapping(file: File | null) {
+    if (photoUrl) URL.revokeObjectURL(photoUrl)
+    setSuspectFile(file)
+    setViewAck(false)
+    setPhotoUrl(null)
+    setPhotoMaskConfirmed(false)
+    setSuggested(null)
+    setPhotoGraph(null)
+    setPhotoOrigin('manual')
+    setPhotoModel(null)
+    setPhotoNote('')
+  }
+
+  function acknowledgeViewing(next: boolean) {
+    setViewAck(next)
+    if (next && suspectFile && !blind) {
+      if (photoUrl) URL.revokeObjectURL(photoUrl)
+      setPhotoUrl(URL.createObjectURL(suspectFile))
+    } else if (photoUrl) {
+      URL.revokeObjectURL(photoUrl)
+      setPhotoUrl(null)
+    }
+  }
+
+  function takeSuggested(rects: SegmentRect[]) {
+    setSuggested(rects)
+  }
+
+  function useSuggested() {
+    if (!suggested) return
+    const merged = mergeRectsToMask(suggested)
+    if (!merged) {
+      setError('The suggestion could not be used. Draw the mask yourself.')
+      return
+    }
+    setPhotoMask(clampMask(merged))
+    setPhotoMaskConfirmed(false)
+    setSuggested(null)
+  }
+
+  function takePhotoGraph(data: unknown, modelName: string) {
+    const parsed = readGraph(data)
+    if (!parsed.ok) {
+      setError(`The AI output was rejected: ${parsed.error} Nothing was saved.`)
+      return
+    }
+    setPhotoGraph(parsed.graph)
+    setPhotoOrigin('ai-assist')
+    setPhotoModel(modelName)
+    setPhotoNote(`AI-mapped ${parsed.graph.room_objects.length} background points. Review the result before comparing.`)
+    setError('')
+  }
+
+  function takeProposal(obj: RoomObject) {
+    setPhotoGraph((current) => ({
+      room_objects: [...(current?.room_objects ?? []).filter((item) => item.name !== obj.name), obj],
+    }))
+    setPhotoOrigin('manual')
+    setPhotoModel(null)
+    setPhotoNote('')
+  }
+
+  function dragPhotoMask(event: React.PointerEvent, mode: 'move' | 'resize') {
+    const frame = photoFrameRef.current
+    if (!frame) return
+    event.preventDefault()
+    event.stopPropagation()
+    const bounds = frame.getBoundingClientRect()
+    const start = { x: event.clientX, y: event.clientY, mask: { ...photoMask } }
+    const move = (ev: PointerEvent) => {
+      const dx = (ev.clientX - start.x) / bounds.width
+      const dy = (ev.clientY - start.y) / bounds.height
+      const next = mode === 'move'
+        ? { ...start.mask, x: start.mask.x + dx, y: start.mask.y + dy }
+        : { ...start.mask, w: start.mask.w + dx, h: start.mask.h + dy }
+      setPhotoMask(clampMask(next))
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
   }
 
   async function takeSource(file: File) {
@@ -98,6 +216,10 @@ export function Check() {
     })
   }
 
+  const mappedSuspect = suspect?.graph ?? photoGraph
+  const mappedOrigin = suspect?.graph ? undefined : photoOrigin
+  const mappedModel = suspect?.graph ? null : photoModel
+
   async function run() {
     setRunning(true)
     setError('')
@@ -105,7 +227,7 @@ export function Check() {
     const outcome = await runCheck(
       {
         source: activeSource,
-        suspect: suspect?.graph ?? null,
+        suspect: mappedSuspect,
         sourceLabel,
         suspectLabel: suspect?.name ?? 'Suspect',
         sourceHash: selected?.fileHash ?? null,
@@ -114,6 +236,10 @@ export function Check() {
         maskApplied: selected?.maskConfirmed ?? false,
         blind,
         sample: false,
+        sourceOrigin: sourceGraph ? undefined : (selected?.origin ?? 'manual'),
+        suspectOrigin: mappedSuspect ? mappedOrigin : undefined,
+        sourceModel: sourceGraph ? null : (selected?.model ?? null),
+        suspectModel: mappedModel,
       },
       upsert,
     )
@@ -149,7 +275,7 @@ export function Check() {
               <i />
               {blind ? 'Blind Mode is on.' : 'Blind Mode is off.'}
             </p>
-            <h2 style={{ marginTop: 12 }}>{blind ? "You won't be shown the suspicious image." : 'Photographs stay hidden in this build.'}</h2>
+            <h2 style={{ marginTop: 12 }}>{blind ? "You won't be shown the suspicious image." : 'A photo is shown only for mapping, and only after you acknowledge viewing.'}</h2>
             <p className="muted">
               {suspect
                 ? `${suspect.name} is sealed. ${suspect.kind === 'graph' ? 'A scene graph was read.' : 'The file was not displayed.'}`
@@ -186,7 +312,7 @@ export function Check() {
               }}
             />
             <b>Add the suspicious file</b>
-            <span className="muted">Scene graph JSON can be compared. An image stays hidden and is not decoded.</span>
+            <span className="muted">Scene graph JSON can be compared. An image stays sealed until you map it below.</span>
           </label>
 
           <label className="field">
@@ -212,11 +338,30 @@ export function Check() {
             />
           </label>
           {error && <p className="error" role="alert">{error}</p>}
-          <Button onClick={() => void run()} disabled={running || !activeSource || !suspect?.graph}>
+          <Button onClick={() => void run()} disabled={running || !activeSource || !mappedSuspect}>
             Compare viewpoints
           </Button>
-          {!suspect?.graph && suspect?.kind === 'image' && (
-            <p className="note">Photograph scene mapping is not available in this build, so this image cannot be compared until a scene graph is provided.</p>
+          {suspect?.kind === 'image' && !suspect.graph && (
+            <SuspectPhotoMapping
+              blind={blind}
+              viewAck={viewAck}
+              onAck={acknowledgeViewing}
+              photoUrl={photoUrl}
+              file={suspectFile}
+              mask={photoMask}
+              maskConfirmed={photoMaskConfirmed}
+              onMaskConfirm={setPhotoMaskConfirmed}
+              suggested={suggested}
+              onSuggested={takeSuggested}
+              onUseSuggested={useSuggested}
+              onDismissSuggested={() => setSuggested(null)}
+              frameRef={photoFrameRef}
+              onDragMask={dragPhotoMask}
+              photoGraph={photoGraph}
+              onPhotoGraph={takePhotoGraph}
+              onProposal={takeProposal}
+              photoNote={photoNote}
+            />
           )}
           {stages.length > 0 && (
             <ol className="stages" aria-live="polite">
@@ -239,10 +384,131 @@ export function Check() {
               <Button to="/results?sample=moved" variant="secondary">Sample moved camera</Button>
             </div>
           </div>
-          <p className="note">Nothing on this page is uploaded. A scene graph sent to the optional local Python engine stays on this computer, and only if you turn that on in Settings.</p>
+          <p className="note">Scene graphs stay on this device. AI mapping sends a redacted photo through the local backend only with your explicit consent per photo.</p>
           <p className="footer-note">Computed on this device.</p>
         </aside>
       </div>
     </div>
   )
+}
+
+type MappingProps = {
+  blind: boolean
+  viewAck: boolean
+  onAck: (next: boolean) => void
+  photoUrl: string | null
+  file: File | null
+  mask: Mask
+  maskConfirmed: boolean
+  onMaskConfirm: (next: boolean) => void
+  suggested: SegmentRect[] | null
+  onSuggested: (rects: SegmentRect[]) => void
+  onUseSuggested: () => void
+  onDismissSuggested: () => void
+  frameRef: React.RefObject<HTMLDivElement | null>
+  onDragMask: (event: React.PointerEvent, mode: 'move' | 'resize') => void
+  photoGraph: SceneGraph | null
+  onPhotoGraph: (data: unknown, model: string) => void
+  onProposal: (obj: RoomObject) => void
+  photoNote: string
+}
+
+function SuspectPhotoMapping(props: MappingProps) {
+  if (props.blind) {
+    return (
+      <p className="note">
+        Blind Mode hides this photo. Turn Blind Mode off and acknowledge viewing to map it here, or ask your
+        contact for a scene graph file instead.
+      </p>
+    )
+  }
+  if (!props.viewAck) {
+    return (
+      <label className="checkline">
+        <input type="checkbox" checked={props.viewAck} onChange={(event) => props.onAck(event.target.checked)} />
+        <span>I understand I will see the suspicious photo, and that viewing it is my choice.</span>
+      </label>
+    )
+  }
+  return (
+    <div className="stack">
+      <label className="checkline">
+        <input type="checkbox" checked={props.viewAck} onChange={(event) => props.onAck(event.target.checked)} />
+        <span>Viewing acknowledged. Uncheck to seal the photo again.</span>
+      </label>
+      {props.photoUrl && (
+        <>
+          <SegmentAssist file={props.file} onRects={props.onSuggested} />
+          {props.suggested && props.suggested.length > 0 && (
+            <div className="actions">
+              <Button variant="secondary" onClick={props.onUseSuggested}>Use suggested mask</Button>
+              <Button variant="ghost" onClick={props.onDismissSuggested}>Dismiss suggestion</Button>
+            </div>
+          )}
+          <div className="mask-frame" ref={props.frameRef}>
+            <img src={props.photoUrl} alt="Suspicious photograph. Cover any person with the opaque rectangle." draggable={false} />
+            <div
+              className="mask-rect"
+              data-mask="true"
+              style={{ left: `${props.mask.x * 100}%`, top: `${props.mask.y * 100}%`, width: `${props.mask.w * 100}%`, height: `${props.mask.h * 100}%` }}
+              onPointerDown={(event) => props.onDragMask(event, 'move')}
+            >
+              <button className="mask-handle" type="button" aria-label="Resize mask" onPointerDown={(event) => props.onDragMask(event, 'resize')} />
+            </div>
+            {(props.suggested ?? []).map((rect, index) => (
+              <span
+                key={`suggest-${index}`}
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  left: `${rect.x / 10}%`,
+                  top: `${rect.y / 10}%`,
+                  width: `${rect.width / 10}%`,
+                  height: `${rect.height / 10}%`,
+                  border: '2px dashed #E8B4B8',
+                  borderRadius: 4,
+                  pointerEvents: 'none',
+                }}
+              />
+            ))}
+          </div>
+          <p className="muted">Drag the black rectangle until any person is inside it. Mapping stays blocked until the mask is confirmed.</p>
+          <label className="checkline">
+            <input type="checkbox" checked={props.maskConfirmed} onChange={(event) => props.onMaskConfirm(event.target.checked)} />
+            <span>Any person is inside the opaque rectangle.</span>
+          </label>
+          <AIAssist
+            file={props.file}
+            mask={props.mask}
+            ready={props.maskConfirmed}
+            blockedReason={props.maskConfirmed ? null : 'Confirm the mask above before AI mapping.'}
+            ctaLabel="Extract suspect background with AI"
+            onGraph={props.onPhotoGraph}
+          />
+          <ProposalAssist
+            file={props.file}
+            mask={props.mask}
+            maskConfirmed={props.maskConfirmed}
+            takenNames={new Set((props.photoGraph?.room_objects ?? []).map((item) => item.name))}
+            onAdd={props.onProposal}
+          />
+          {props.photoNote && <p role="status">{props.photoNote}</p>}
+          {props.photoGraph && (
+            <p className="muted">{props.photoGraph.room_objects.length} suspect background point(s) mapped. Compare when ready.</p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function clampMask(mask: Mask): Mask {
+  const w = Math.min(0.9, Math.max(0.12, mask.w))
+  const h = Math.min(0.9, Math.max(0.12, mask.h))
+  return {
+    w,
+    h,
+    x: Math.min(1 - w, Math.max(0, mask.x)),
+    y: Math.min(1 - h, Math.max(0, mask.y)),
+  }
 }

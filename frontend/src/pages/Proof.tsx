@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useCaseRecord } from '../components/case'
 import { EvidenceDiagram } from '../components/EvidenceDiagram'
 import { Button, Dialog, MetricList, PageHeader, usePageTitle, useReducedMotion } from '../components/ui'
-import { PROOF_LIMITS, PUNISHMENT_RULE, SCIENCE_LIMIT, metricRows, reportText } from '../lib/report'
+import { PROOF_LIMITS, PUNISHMENT_RULE, SCIENCE_LIMIT, mappingLabel, metricRows, reportText } from '../lib/report'
 import { buildSample } from '../lib/sampleCase'
 import { reviewStore } from '../lib/storage'
 
@@ -81,6 +81,7 @@ export function Proof() {
             <span className={`status status-${current.presentation.tone}`}>{current.presentation.label}</span>
             <h2 style={{ marginTop: 12 }}>{current.presentation.summary}</h2>
             {current.presentation.note && <p>{current.presentation.note}</p>}
+            <p className="muted">Source mapping: {mappingLabel(current.sourceOrigin, current.sourceModel)} Suspect mapping: {mappingLabel(current.suspectOrigin, current.suspectModel)}</p>
             <MetricList rows={metricRows(current.result, current.hashComparison)} />
           </section>
           <EvidenceDiagram

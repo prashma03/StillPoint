@@ -93,6 +93,8 @@ function sanitizeScene(value: unknown): StoredScene | null {
     maskConfirmed: item.maskConfirmed === true,
     personExcludedConfirmed: item.personExcludedConfirmed === true,
     graph: read.graph,
+    origin: item.origin === 'ai-assist' ? 'ai-assist' : 'manual',
+    model: typeof item.model === 'string' ? item.model : null,
   }
 }
 

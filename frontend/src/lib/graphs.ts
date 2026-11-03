@@ -1,5 +1,5 @@
-import { FORBIDDEN_NAMES } from './align'
 import type { RoomObject, SceneGraph } from './types'
+import { validateGraph } from './validate'
 
 export const STABLE_OBJECTS = [
   'bed',
@@ -14,59 +14,14 @@ export const STABLE_OBJECTS = [
   'chair',
 ] as const
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
-}
-
 export function readGraph(
   data: unknown,
 ): { ok: true; graph: SceneGraph; excludedPeople: number } | { ok: false; error: string } {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return { ok: false, error: 'This file is not a scene graph.' }
+  const checked = validateGraph(data)
+  if (!checked.ok) {
+    return { ok: false, error: checked.errors[0]?.message ?? 'This file is not a scene graph.' }
   }
-  const record = data as Record<string, unknown>
-  if (!Array.isArray(record.room_objects)) {
-    return { ok: false, error: 'Expected room_objects with name, x, y, width, and height.' }
-  }
-
-  const room_objects: RoomObject[] = []
-  let excludedPeople = 0
-  for (const item of record.room_objects) {
-    if (!item || typeof item !== 'object') {
-      return { ok: false, error: 'A room object was not readable.' }
-    }
-    const obj = item as Record<string, unknown>
-    const name = typeof obj.name === 'string' ? obj.name.trim() : ''
-    if (!name) return { ok: false, error: 'Every room object needs a name.' }
-    if (!isFiniteNumber(obj.x) || !isFiniteNumber(obj.y) || !isFiniteNumber(obj.width) || !isFiniteNumber(obj.height)) {
-      return { ok: false, error: `“${name}” needs numeric x, y, width, and height.` }
-    }
-    if (FORBIDDEN_NAMES.has(name.toLowerCase())) {
-      excludedPeople += 1
-      continue
-    }
-    room_objects.push({
-      name,
-      x: obj.x,
-      y: obj.y,
-      width: obj.width,
-      height: obj.height,
-      occludes: stringList(obj.occludes),
-      is_above: stringList(obj.is_above),
-      is_below: stringList(obj.is_below),
-    })
-  }
-
-  const graph: SceneGraph = { room_objects }
-  if (isFiniteNumber(record.coverage_percent)) graph.coverage_percent = record.coverage_percent
-  if (isFiniteNumber(record.total_stable_points)) graph.total_stable_points = record.total_stable_points
-  return { ok: true, graph, excludedPeople }
-}
-
-function stringList(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined
-  const names = value.filter((item): item is string => typeof item === 'string')
-  return names.length ? names : undefined
+  return { ok: true, graph: checked.graph, excludedPeople: checked.report.excluded_people }
 }
 
 export function shiftGraph(graph: SceneGraph, dx: number, dy: number): SceneGraph {

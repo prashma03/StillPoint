@@ -2,7 +2,7 @@ import { compareGraphs } from './align'
 import { excludeMasked, readGraph } from './graphs'
 import { hashComparison } from './report'
 import { present } from './present'
-import type { CaseRecord, Mask, SceneGraph, StageUpdate } from './types'
+import type { CaseRecord, MappingOrigin, Mask, SceneGraph, StageUpdate } from './types'
 
 export type CheckInput = {
   source: SceneGraph | null
@@ -15,6 +15,10 @@ export type CheckInput = {
   maskApplied: boolean
   blind: boolean
   sample: boolean
+  sourceOrigin?: MappingOrigin
+  suspectOrigin?: MappingOrigin
+  sourceModel?: string | null
+  suspectModel?: string | null
 }
 
 export type CheckOutcome =
@@ -41,7 +45,7 @@ export async function runCheck(input: CheckInput, onStage: (stage: StageUpdate) 
     label: 'Preparing images',
     state: 'done',
     detail: input.sourceHash || input.suspectHash
-      ? 'File hashes are ready. Image pixels were not sent anywhere.'
+      ? 'File hashes are ready. Hashing happened on this device.'
       : 'No image file in this check. Scene graphs only.',
   })
 
@@ -49,7 +53,7 @@ export async function runCheck(input: CheckInput, onStage: (stage: StageUpdate) 
     return {
       ok: false,
       reason:
-        'A source scene graph and a suspect scene graph are both required. Photograph mapping is not available in this build, so an image alone cannot be compared.',
+        'A source scene graph and a suspect scene graph are both required. Map each photograph to a graph first, then compare.',
     }
   }
 
@@ -133,6 +137,10 @@ export async function runCheck(input: CheckInput, onStage: (stage: StageUpdate) 
     sourceGraph: masked.graph,
     suspectGraph: suspect.graph,
     pythonNote: null,
+    sourceOrigin: input.sourceOrigin,
+    suspectOrigin: input.suspectOrigin,
+    sourceModel: input.sourceModel ?? null,
+    suspectModel: input.suspectModel ?? null,
   }
   onStage({
     id: 'evidence',

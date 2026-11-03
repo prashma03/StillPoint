@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { buildAnalyzeBody, userSafeError } from './ai'
 import { compareGraphs } from './align'
 import { readGraph, shiftGraph, zoomAndCrop } from './graphs'
 import { present } from './present'
 import { scenePose } from './pose'
-import { hashComparison, reportText } from './report'
+import { allowedImageType, maskToPixels, scaledSize } from './redact'
+import { hashComparison, mappingLabel, reportText, shiftLabel } from './report'
 import { buildSample } from './sampleCase'
 import { sampleDerivative, sampleMoved, sampleOriginal } from './samples'
 import { assertNoImagePayload, createMemoryStore, createSceneStore } from './storage'
@@ -263,6 +265,118 @@ describe('comparison safety', () => {
     expect(result.invalid_objects).toBe(0)
     expect(result.duplicate_objects).toBe(0)
   })
+
+  it('pins 80 percent as derivative and 40 percent as no link', () => {
+    const five = {
+      room_objects: [
+        ...sampleOriginal.room_objects,
+        { name: 'window', x: 500, y: 100, width: 120, height: 160 },
+      ],
+    }
+    const oneMoved = {
+      room_objects: five.room_objects.map((obj, index) =>
+        index === 4 ? { ...obj, x: obj.x + 200 } : obj,
+      ),
+    }
+    const fourOfFive = compareGraphs(five, oneMoved)
+    expect(fourOfFive.usable_points).toBe(5)
+    expect(fourOfFive.aligned_points).toBe(4)
+    expect(fourOfFive.agreement_percent).toBe(80)
+    expect(fourOfFive.verdict).toBe('Likely derivative')
+
+    const threeMoved = {
+      room_objects: five.room_objects.map((obj, index) =>
+        index >= 2 ? { ...obj, x: obj.x + 200 } : obj,
+      ),
+    }
+    const twoOfFive = compareGraphs(five, threeMoved)
+    expect(twoOfFive.aligned_points).toBe(2)
+    expect(twoOfFive.agreement_percent).toBe(40)
+    expect(twoOfFive.verdict).toBe('No link found')
+  })
+})
+
+describe('redaction helpers', () => {
+  it('accepts supported image types', () => {
+    expect(allowedImageType('image/jpeg', 'a.jpg')).toBe(true)
+    expect(allowedImageType('image/png', 'a.png')).toBe(true)
+    expect(allowedImageType('image/webp', 'a.webp')).toBe(true)
+    expect(allowedImageType('', 'a.png')).toBe(true)
+    expect(allowedImageType('image/gif', 'a.gif')).toBe(false)
+    expect(allowedImageType('', 'a.txt')).toBe(false)
+  })
+
+  it('downscales large images only', () => {
+    expect(scaledSize(4000, 2000)).toEqual({ w: 1600, h: 800 })
+    expect(scaledSize(800, 600)).toEqual({ w: 800, h: 600 })
+    expect(scaledSize(0, 10)).toEqual({ w: 0, h: 0 })
+  })
+
+  it('converts mask fractions to clamped pixels', () => {
+    expect(maskToPixels({ x: 0.25, y: 0.1, w: 0.5, h: 0.5 }, 1000, 800)).toEqual({
+      x: 250,
+      y: 80,
+      w: 500,
+      h: 400,
+    })
+  })
+})
+
+describe('ai bridge', () => {
+  it('maps error codes to safe messages', () => {
+    expect(userSafeError('model_not_configured', 'x')).toMatch(/not configured/)
+    expect(userSafeError('consent_required', 'x')).toMatch(/Consent/)
+    expect(userSafeError('invalid_image', 'x')).toMatch(/8 MB/)
+    expect(userSafeError('timeout', 'x')).toMatch(/timed out/)
+    expect(userSafeError('bogus', 'fallback')).toBe('fallback')
+    expect(userSafeError(undefined, 'fallback')).toBe('fallback')
+  })
+
+  it('always sends consent with the analysis request', () => {
+    expect(buildAnalyzeBody('data:image/jpeg;base64,AA', null)).toEqual({
+      image: 'data:image/jpeg;base64,AA',
+      consent: true,
+      mask: null,
+    })
+  })
+})
+
+describe('mapping provenance', () => {
+  it('labels origins plainly', () => {
+    expect(mappingLabel('manual', null)).toBe('Manual point placement.')
+    expect(mappingLabel('ai-assist', 'muse-wonder-1.0')).toBe('AI-assisted (muse-wonder-1.0).')
+    expect(mappingLabel('ai-assist', null)).toBe('AI-assisted.')
+    expect(mappingLabel(undefined, null)).toBe('Not recorded.')
+  })
+
+  it('keeps origin on saved scenes and defaults legacy scenes', () => {
+    const store = createSceneStore(createMemoryStore())
+    const scene: StoredScene = {
+      id: 'b',
+      label: 'AI room',
+      createdAt: '2026-11-01T00:00:00.000Z',
+      fileHash: null,
+      mask: null,
+      maskConfirmed: false,
+      personExcludedConfirmed: true,
+      graph: sampleOriginal,
+      origin: 'ai-assist',
+      model: 'muse-wonder-1.0',
+    }
+    store.save(scene)
+    expect(store.get('b')?.origin).toBe('ai-assist')
+    expect(store.get('b')?.model).toBe('muse-wonder-1.0')
+    const legacy = { ...scene, id: 'c' } as unknown as Record<string, unknown>
+    delete legacy.origin
+    store.save(legacy as unknown as StoredScene)
+    expect(store.get('c')?.origin).toBe('manual')
+  })
+
+  it('records mapping lines in the report', () => {
+    const text = reportText(buildSample('derivative'))
+    expect(text).toContain('Source mapping: Manual point placement.')
+    expect(text).toContain('Suspect mapping: Manual point placement.')
+  })
 })
 
 describe('wording', () => {
@@ -308,6 +422,17 @@ describe('report privacy', () => {
     expect(hashComparison(null, 'abc')).toBe('Not available')
     expect(hashComparison('abc', 'abc')).toBe('File bytes are identical.')
     expect(hashComparison('abc', 'def')).toMatch(/not a visual similarity/)
+  })
+
+  it('labels the shift pattern without touching the verdict', () => {
+    const derivative = compareGraphs(sampleOriginal, sampleDerivative)
+    expect(shiftLabel(derivative)).toMatch(/^Uniform \(median/)
+    expect(derivative.verdict).toBe('Likely derivative')
+    const moved = compareGraphs(sampleOriginal, sampleMoved)
+    expect(shiftLabel(moved)).toMatch(/^Scattered \(median/)
+    const empty = compareGraphs(sampleOriginal, { room_objects: [] })
+    expect(shiftLabel(empty)).toBe('Not available')
+    expect(reportText(buildSample('derivative'))).toContain('Shift pattern: Uniform')
   })
 })
 

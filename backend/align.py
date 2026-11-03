@@ -86,6 +86,18 @@ def _is_valid_coords(obj):
     return True
 
 
+def normalize_name(value):
+    """Public wrapper for canonical name normalization (see _normalize_name)."""
+    return _normalize_name(value)
+
+
+def valid_coordinates(obj):
+    """Public wrapper: True when obj has finite in-range x, y, width, height."""
+    if not isinstance(obj, dict):
+        return False
+    return _is_valid_coords(obj)
+
+
 def _prepare_objects(graph):
     """Validate one graph into an ordered name -> object lookup.
 
@@ -147,6 +159,40 @@ def _coverage(graph):
     return value
 
 
+def _median(values):
+    """Median of a non-empty list. Even counts average the two middles."""
+    ordered = sorted(values)
+    count = len(ordered)
+    middle = count // 2
+    if count % 2 == 1:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2
+
+
+def _shift_consistency(shifts):
+    """Describe how uniformly the shared objects moved.
+
+    Returns (median_shift, shift_spread, uniform_shift):
+    - median_shift: [median dx, median dy], or None when nothing is shared.
+    - shift_spread: largest distance of any shift from the median shift,
+      or None when nothing is shared. Zero for a single correspondence.
+    - uniform_shift: True when at least two objects moved together within
+      the alignment threshold. Informational only; never a verdict.
+    """
+    if not shifts:
+        return None, None, False
+    medx = _median([dx for dx, _ in shifts])
+    medy = _median([dy for _, dy in shifts])
+    spread = max(
+        math.sqrt((dx - medx) ** 2 + (dy - medy) ** 2) for dx, dy in shifts
+    )
+    return (
+        [round(medx, 2), round(medy, 2)],
+        round(spread, 2),
+        len(shifts) >= 2 and spread < ALIGN_DISTANCE,
+    )
+
+
 def compare_graphs(graph1, graph2):
     """Compare a source scene graph against a suspect scene graph.
 
@@ -171,6 +217,7 @@ def compare_graphs(graph1, graph2):
     aligned_points = 0
     residuals = []
     raw_distances = []
+    raw_shifts = []
     for name in common_names:
         cx1, cy1 = get_center(objects1[name])
         cx2, cy2 = get_center(objects2[name])
@@ -178,6 +225,10 @@ def compare_graphs(graph1, graph2):
         # Euclidean distance between the two centers.
         distance = math.sqrt((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2)
         raw_distances.append(distance)
+        # Signed displacement, suspect minus source. Informational only.
+        dx = cx2 - cx1
+        dy = cy2 - cy1
+        raw_shifts.append((dx, dy))
 
         # If distance < 25, the object stayed almost in the same place
         # on a 0-1000 scale, so the camera viewpoint likely did not move.
@@ -189,6 +240,8 @@ def compare_graphs(graph1, graph2):
             {
                 "name": name,
                 "distance": round(distance, 2),
+                "dx": round(dx, 2),
+                "dy": round(dy, 2),
                 "aligned": aligned,
             }
         )
@@ -200,6 +253,12 @@ def compare_graphs(graph1, graph2):
     else:
         agreement_percent = 0
         mean_residual = None
+
+    # Shift consistency is informational only. It never changes the verdict.
+    # A small spread means every shared object moved together, which is
+    # consistent with a crop or resize rather than a moved camera. The engine
+    # still reports what the thresholds say; the note only flags uncertainty.
+    median_shift, shift_spread, uniform_shift = _shift_consistency(raw_shifts)
 
     # Verdict rules. Only these 3 verdicts are ever allowed.
     # Both directions require enough shared background objects; anything
@@ -224,6 +283,9 @@ def compare_graphs(graph1, graph2):
         "verdict": verdict,
         "residuals": residuals,
         "mean_residual": mean_residual,
+        "median_shift": median_shift,
+        "shift_spread": shift_spread,
+        "uniform_shift": uniform_shift,
         "alignment_threshold": ALIGN_DISTANCE,
         "excluded_person_objects": excluded1 + excluded2,
         "invalid_objects": invalid1 + invalid2,

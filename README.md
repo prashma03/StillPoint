@@ -1,39 +1,186 @@
-# Stillpoint
+# Stillpoint — Proof without seeing.
 
-Stillpoint compares background scene graphs to see whether two layouts share a camera viewpoint. It does not identify a face, store a face, or decide that someone did something wrong.
+Stillpoint helps a person investigate whether a suspected edited photograph
+may share the same original photographic viewpoint and background geometry
+as a registered benign photograph — without exposing the person in either
+image to reviewers or analysts.
 
-Background alignment alone cannot establish the identity of the depicted person, consent, or wrongdoing. A background match alone cannot trigger automatic punishment or removal.
+Background alignment alone cannot establish the identity of the depicted
+person, consent, or wrongdoing. A background match alone cannot trigger
+automatic punishment or removal.
 
-## What is real
+## What Stillpoint actually does
 
-- `backend/align.py` compares named background objects by center distance.
-- A shared object is aligned when its center moves fewer than 25 units on a 0–1000 scale.
-- With at least 4 shared objects, 80% or more aligned is `Likely derivative`. 40% or less is `No link found`. Every other result is `Cannot determine`.
-- Person-named objects (`person`, `face`, `body`, `hair`, `skin`, `clothes`, `head`) are dropped before scoring.
-- `eval/killtest.py` and `eval/test_align.py` exercise the sample graphs.
-- The web app ports that same function and checks the sample numbers in `frontend`.
-- Optional local API: `python -m backend.server` on `127.0.0.1:8787`. It accepts scene graphs only and refuses image fields. The app does not call it unless Settings turns that on.
+1. The user registers an original photograph by mapping its background:
+   manual point placement, on-device detail proposals the user labels by
+   hand, or experimental AI-assisted mapping when a model key is configured.
+2. People are masked before analysis. Masking is manual in this build;
+   automatic person segmentation is not implemented. Analysis never runs
+   until the mask is confirmed, and proposals come only from outside it.
+3. The background map is validated and saved on the user's own device as a
+   scene graph. Photographs are never stored.
+4. The user compares a suspect scene graph against the registered reference.
+5. The matching engine reports one of three verdicts — `Likely derivative`,
+   `No link found`, or `Cannot determine` — with per-object measurements,
+   shift diagnostics, and written limitations.
+6. The Proof page exports a redacted text report containing measurements
+   only. The report is locally generated; it is not independently certified
+   or tamper-proof.
 
-## What is not built
-
-- Extracting a scene graph from a photograph.
-- Person segmentation, room scan, image-attack generation, perceptual hashing, and sealed identity verification.
-- Any upload of photographs. The interface can hold an original photo in memory long enough to draw a mask, then discards it. Saved records are scene graphs, mask rectangles, and file hashes.
-
-Sample graphs in `sample_data/` are synthetic. The homepage room is an illustration, not an analysis.
-
-## Run the checks
+## Architecture
 
 ```text
-python eval/test_align.py
-python eval/killtest.py
+Browser (React + Vite, http://localhost:5173)
+├── Protect: photo (memory only) -> manual mask -> manual points,
+│            on-device edge-density proposals (user labels each one),
+│            or experimental AI assist -> validated scene graph
+├── Check:   suspect graph + registered scene -> on-device comparison
+├── Results: verdict + residuals + shift pattern + limitations
+├── Proof:   redacted exportable report (no photographs)
+└── Storage: localStorage (graphs, masks, hashes) — image bytes refused
+
+Local backend (Python stdlib, http://127.0.0.1:8787) — optional
+├── POST /api/compare   scene graphs only; images refused (as before)
+├── GET  /api/status    {configured} boolean; never exposes credentials
+├── POST /api/analyze   redacted image + consent flag + API key
+├── POST /api/segment   image + consent flag + API key -> person rects only
+    └── Meta Model API (https://api.meta.ai/v1) — key-gated
+        ├── muse-wonder-1.0 scene-graph extraction (Responses API)
+        └── sam-3.1 person segmentation (Responses API, masks discarded)
 ```
+
+Nothing leaves the computer except, with explicit per-photo consent, a
+redacted image sent from the local backend to the configured model service.
+Without a key the backend answers `503 model_not_configured` and the app
+falls back to manual mapping. Failures are explicit errors; the app never
+substitutes mock data.
+
+## Installation
+
+Requirements: Node.js 20+, npm, and any Python 3.10+ (backend is stdlib-only).
 
 ```text
 cd frontend
 npm install
-npm test
-npm run dev
+npm test        # vitest suite
+npm run dev     # app at http://localhost:5173
 ```
 
-The app is at `http://127.0.0.1:5173`.
+```text
+python eval/test_align.py
+python eval/test_diagnostics.py
+python eval/test_validate.py
+python eval/test_pipeline.py
+python eval/test_segment.py
+python eval/killtest.py
+```
+
+Optional local backend (AI-assisted mapping and Python cross-check):
+
+```text
+python -m backend.server   # listens on http://127.0.0.1:8787
+```
+
+## Environment variables
+
+| Variable | Read by | Purpose |
+| --- | --- | --- |
+| `MODEL_API_KEY` | local backend only | Meta Model API key. Never in frontend code. |
+
+Copy `.env.example` to `.env` (git-ignored) or export the variable in the
+shell that runs `python -m backend.server`. Without it, `/api/analyze` and
+`/api/segment` return `503` and manual mapping remains the working path.
+
+## Verified Meta integrations
+
+Honest status — what was verified, and how:
+
+- API client implemented against the official Meta Model API documentation:
+  base URL `https://api.meta.ai/v1`, Bearer `MODEL_API_KEY` auth, Models
+  `muse-wonder-1.0` (scene extraction via Responses API + `text.format`
+  JSON schema) and `sam-3.1` (segmentation via Responses API, documented
+  special-token grammar parsed for boxes only; mask payloads discarded).
+- Endpoint reachability verified without credentials: unauthenticated
+  `GET /v1/models` returns `401`, proving the endpoint is live and requires
+  authentication.
+- **No authenticated model call has been made**: no API key was available in
+  this environment, so no live inference output has ever been observed.
+  Request shapes, parsers, validators, consent gating, and every error path
+  are unit- and integration-tested with fixtures; the live wire-up activates
+  only when a real key is configured.
+
+## Matching methodology
+
+The comparison engine (`backend/align.py`, ported 1:1 to
+`frontend/src/lib/align.ts`) compares named background objects by center
+distance on a 0–1000 scale:
+
+- Aligned when centers move fewer than 25 units.
+- Both `Likely derivative` (≥80% aligned) and `No link found` (≤40% aligned)
+  require at least 4 shared background objects; anything less is
+  `Cannot determine`. Zero overlap is never a negative verdict.
+- Names are normalized (trimmed, lowercased); person-named objects are
+  excluded before scoring; invalid coordinates and duplicates are skipped
+  and counted, never scored.
+- Shift diagnostics (`median_shift`, `shift_spread`, `uniform_shift`) describe
+  how shared objects moved — a uniform shift is consistent with a crop —
+  but they are informational only and never change the verdict.
+- Relationship fields (`occludes`, `is_above`, `is_below`) are carried as
+  unverified observations and never scored.
+
+The engine measures layout agreement only. It does not prove derivation,
+identity, or consent.
+
+## Testing results (observed)
+
+| Suite | Result |
+| --- | --- |
+| `eval/test_align.py` | 18/18 pass |
+| `eval/test_diagnostics.py` | 5/5 pass |
+| `eval/test_validate.py` | 16/16 pass |
+| `eval/test_pipeline.py` (incl. live localhost HTTP) | 16/16 pass |
+| `eval/test_segment.py` (segment endpoint, stubbed model) | 7/7 pass |
+| Vitest (`engine` + `diagnostics` + `pipeline`) | 53/53 pass |
+| Python↔TypeScript parity (10 fixtures, full result JSON) | byte-identical |
+| `tsc --noEmit` | 0 errors |
+| `vite build` | succeeds |
+
+Real-image evaluation (crop, resize, brightness, viewpoint changes) is
+blocked on model access: without extraction there are no measured false
+positive/negative rates, and none are claimed.
+
+## Privacy and security limitations
+
+- Masking is manual. Missed regions stay visible to analysis; the app
+  requires mask confirmation but cannot verify it. On-device proposals
+  are classical edge detection, not object recognition — they never name
+  objects or people, and their pixels never leave the tab.
+- Masking is not anonymization: backgrounds and other details may still be
+  identifying. The app says so on screen.
+- Suspect photographs in Check stay sealed: they are never displayed and
+  never sent anywhere, because they cannot be masked without viewing.
+- The local backend holds image bytes in memory only, enforces consent,
+  validates formats (JPEG/PNG/WebP, 8 MB cap), and logs request paths only.
+- Scene graphs, mask rectangles, file hashes, and notes persist in the
+  browser until deleted in Settings. There is no server copy.
+
+## Known limitations
+
+- No automatic person segmentation wired into the UI (the `/api/segment`
+  endpoint exists and is tested, but needs a model key and a review
+  interface); no room scan; no sealed identity verification; no reviewer
+  inbox (review notes stay on device).
+- AI-assisted mapping requires the local backend plus a model API key;
+  only manual mapping and on-device proposals work out of the box.
+- The engine matches by object name, so renamed or replaced backgrounds
+  cannot link, and that case is not auto-detected.
+- Replaced-background and heavy-crop cases are not specially handled.
+
+## Future improvements
+
+- Provision a model key and verify the live extraction wire-up end to end.
+- Add automatic person segmentation (local first choice) with manual
+  correction, keeping the confirmed-mask gate.
+- Evaluate on consented real-image pairs and publish measured error rates.
+- Explore justified geometric upgrades (e.g. similarity-fit residuals) with
+  tests, keeping Python/TypeScript parity.

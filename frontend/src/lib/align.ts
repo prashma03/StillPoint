@@ -99,6 +99,30 @@ function prepareObjects(graph: SceneGraph): Prepared {
   return { objects, excluded, invalid, duplicates }
 }
 
+function median(values: number[]): number {
+  const ordered = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(ordered.length / 2)
+  if (ordered.length % 2 === 1) return ordered[middle]
+  return (ordered[middle - 1] + ordered[middle]) / 2
+}
+
+function shiftConsistency(shifts: [number, number][]): {
+  medianShift: [number, number] | null
+  spread: number | null
+  uniform: boolean
+} {
+  if (shifts.length === 0) return { medianShift: null, spread: null, uniform: false }
+  const medx = median(shifts.map(([dx]) => dx))
+  const medy = median(shifts.map(([, dy]) => dy))
+  // Same formula as the Python engine: sqrt of summed squares, not hypot.
+  const spread = Math.max(...shifts.map(([dx, dy]) => Math.sqrt((dx - medx) ** 2 + (dy - medy) ** 2)))
+  return {
+    medianShift: [roundTo(medx, 2), roundTo(medy, 2)],
+    spread: roundTo(spread, 2),
+    uniform: shifts.length >= 2 && spread < ALIGN_DISTANCE,
+  }
+}
+
 function coverage(graph: SceneGraph): number | null {
   if (!Object.prototype.hasOwnProperty.call(graph, 'coverage_percent')) return null
   const value = graph.coverage_percent
@@ -115,17 +139,23 @@ export function compareGraphs(graph1: SceneGraph, graph2: SceneGraph): AlignResu
   let alignedPoints = 0
   const residuals = []
   const rawDistances: number[] = []
+  const rawShifts: [number, number][] = []
 
   for (const name of commonNames) {
     const [cx1, cy1] = getCenter(first.objects.get(name)!)
     const [cx2, cy2] = getCenter(second.objects.get(name)!)
     const distance = Math.hypot(cx1 - cx2, cy1 - cy2)
     rawDistances.push(distance)
+    const dx = cx2 - cx1
+    const dy = cy2 - cy1
+    rawShifts.push([dx, dy])
     const aligned = distance < ALIGN_DISTANCE
     if (aligned) alignedPoints += 1
     residuals.push({
       name,
       distance: roundTo(distance, 2),
+      dx: roundTo(dx, 2),
+      dy: roundTo(dy, 2),
       aligned,
     })
   }
@@ -136,6 +166,9 @@ export function compareGraphs(graph1: SceneGraph, graph2: SceneGraph): AlignResu
     agreement = (alignedPoints / usablePoints) * 100
     meanResidual = roundTo(rawDistances.reduce((sum, value) => sum + value, 0) / usablePoints, 2)
   }
+
+  // Shift consistency is informational only. It never changes the verdict.
+  const consistency = shiftConsistency(rawShifts)
 
   let verdict: Verdict
   if (usablePoints >= MIN_USABLE_FOR_VERDICT && agreement >= DERIVATIVE_AGREEMENT) {
@@ -153,6 +186,9 @@ export function compareGraphs(graph1: SceneGraph, graph2: SceneGraph): AlignResu
     verdict,
     residuals,
     mean_residual: meanResidual,
+    median_shift: consistency.medianShift,
+    shift_spread: consistency.spread,
+    uniform_shift: consistency.uniform,
     alignment_threshold: ALIGN_DISTANCE,
     excluded_person_objects: first.excluded + second.excluded,
     invalid_objects: first.invalid + second.invalid,

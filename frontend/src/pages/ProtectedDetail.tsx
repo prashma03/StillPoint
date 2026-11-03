@@ -28,6 +28,25 @@ export function ProtectedDetail() {
     navigate('/protect')
   }
 
+  function exportGraph() {
+    if (!scene) return
+    const payload = {
+      room_objects: scene.graph.room_objects,
+      ...(scene.graph.coverage_percent == null ? {} : { coverage_percent: scene.graph.coverage_percent }),
+      ...(scene.graph.total_stable_points == null ? {} : { total_stable_points: scene.graph.total_stable_points }),
+      origin: scene.origin ?? 'manual',
+      ...(scene.model ? { model: scene.model } : {}),
+      exportedAt: new Date().toISOString(),
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'stillpoint-scene-graph.json'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="page">
       <PageHeader
@@ -49,6 +68,7 @@ export function ProtectedDetail() {
           <div className="actions">
             <Button to={`/check?scene=${scene.id}`}>Use in a check</Button>
             <Button to={`/test?scene=${scene.id}`} variant="secondary">Test this scene</Button>
+            <Button variant="secondary" onClick={exportGraph}>Export scene graph</Button>
             <Button variant="secondary" onClick={() => setOpen(true)}>Delete</Button>
           </div>
           <p className="footer-note"><Link to="/protect">All protected scenes</Link></p>

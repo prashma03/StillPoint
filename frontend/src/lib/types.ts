@@ -18,6 +18,9 @@ export type SceneGraph = {
 export type Residual = {
   name: string
   distance: number
+  /** Signed displacement, suspect center minus source center. */
+  dx: number
+  dy: number
   aligned: boolean
 }
 
@@ -30,6 +33,12 @@ export type AlignResult = {
   verdict: Verdict
   residuals: Residual[]
   mean_residual: number | null
+  /** Median displacement across correspondences. Null when nothing is shared. */
+  median_shift: [number, number] | null
+  /** Largest distance of any shift from the median shift. Informational only. */
+  shift_spread: number | null
+  /** True when at least two objects moved together within the threshold. */
+  uniform_shift: boolean
   alignment_threshold: number
   excluded_person_objects: number
   invalid_objects: number
@@ -61,6 +70,8 @@ export type Mask = {
   h: number
 }
 
+export type MappingOrigin = 'manual' | 'ai-assist'
+
 export type StoredScene = {
   id: string
   label: string
@@ -70,6 +81,8 @@ export type StoredScene = {
   maskConfirmed: boolean
   personExcludedConfirmed: boolean
   graph: SceneGraph
+  origin?: MappingOrigin
+  model?: string | null
 }
 
 export type CaseRecord = {
@@ -90,6 +103,10 @@ export type CaseRecord = {
   sourceGraph: SceneGraph
   suspectGraph: SceneGraph
   pythonNote: string | null
+  sourceOrigin?: MappingOrigin
+  suspectOrigin?: MappingOrigin
+  sourceModel?: string | null
+  suspectModel?: string | null
 }
 
 export type StageUpdate = {

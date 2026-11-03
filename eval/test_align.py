@@ -314,6 +314,30 @@ class AlignTests(unittest.TestCase):
         self.assertEqual(result["invalid_objects"], 0)
         self.assertEqual(result["duplicate_objects"], 0)
 
+    def test_boundary_agreements(self):
+        five = {"room_objects": list(GRAPH1["room_objects"]) + [
+            {"name": "window", "x": 500, "y": 100, "width": 120,
+             "height": 160}
+        ]}
+        one_moved = {"room_objects": [
+            dict(obj, x=obj["x"] + 200) if index == 4 else obj
+            for index, obj in enumerate(five["room_objects"])
+        ]}
+        result = compare_graphs(five, one_moved)
+        self.assertEqual(result["usable_points"], 5)
+        self.assertEqual(result["aligned_points"], 4)
+        self.assertEqual(result["agreement_percent"], 80.0)
+        self.assertEqual(result["verdict"], "Likely derivative")
+
+        three_moved = {"room_objects": [
+            dict(obj, x=obj["x"] + 200) if index >= 2 else obj
+            for index, obj in enumerate(five["room_objects"])
+        ]}
+        result = compare_graphs(five, three_moved)
+        self.assertEqual(result["aligned_points"], 2)
+        self.assertEqual(result["agreement_percent"], 40.0)
+        self.assertEqual(result["verdict"], "No link found")
+
 
 if __name__ == "__main__":
     unittest.main()

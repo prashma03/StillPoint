@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { AIAssist } from '../components/AIAssist'
+import { ProposalAssist } from '../components/ProposalAssist'
+import { SegmentAssist } from '../components/SegmentAssist'
 import { Button, PageHeader, usePageTitle } from '../components/ui'
+import type { SegmentRect } from '../lib/ai'
 import { STABLE_OBJECTS, centerInsideMask, readGraph } from '../lib/graphs'
 import { sha256 } from '../lib/hash'
+import { mergeRectsToMask } from '../lib/segment'
 import { sceneStore } from '../lib/storage'
-import type { Mask, RoomObject, SceneGraph } from '../lib/types'
+import type { MappingOrigin, Mask, RoomObject, SceneGraph } from '../lib/types'
 
 const emptyGraph: SceneGraph = { room_objects: [] }
 
@@ -18,9 +23,15 @@ export function Protect() {
   const [fileName, setFileName] = useState<string | null>(null)
   const [fileHash, setFileHash] = useState<string | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [graph, setGraph] = useState<SceneGraph>(emptyGraph)
+  const [origin, setOrigin] = useState<MappingOrigin>('manual')
+  const [model, setModel] = useState<string | null>(null)
+  const [aiNote, setAiNote] = useState('')
   const [imported, setImported] = useState(false)
   const [mask, setMask] = useState<Mask>({ x: 0.34, y: 0.1, w: 0.32, h: 0.72 })
+  const [suggested, setSuggested] = useState<SegmentRect[] | null>(null)
+  const [suggestModel, setSuggestModel] = useState<string | null>(null)
   const [maskConfirmed, setMaskConfirmed] = useState(false)
   const [personAck, setPersonAck] = useState(false)
   const [selectedName, setSelectedName] = useState<string>(STABLE_OBJECTS[0])
@@ -51,8 +62,12 @@ export function Protect() {
         }
         if (preview) URL.revokeObjectURL(preview)
         setPreview(null)
+        setPhotoFile(null)
         setImported(true)
         setGraph(parsed.graph)
+        setOrigin('manual')
+        setModel(null)
+        setAiNote('')
         setFileName(file.name)
         setFileHash(await sha256(file))
         setMaskConfirmed(false)
@@ -67,12 +82,33 @@ export function Protect() {
     }
     if (preview) URL.revokeObjectURL(preview)
     setPreview(URL.createObjectURL(file))
+    setPhotoFile(file)
+    setSuggested(null)
+    setSuggestModel(null)
     setImported(false)
     setGraph(emptyGraph)
+    setOrigin('manual')
+    setModel(null)
+    setAiNote('')
     setFileName(file.name)
     setFileHash(await sha256(file))
     setMaskConfirmed(false)
     setPersonAck(false)
+  }
+
+  function takeAIGraph(data: unknown, modelName: string) {
+    const parsed = readGraph(data)
+    if (!parsed.ok) {
+      setError(`The AI output was rejected: ${parsed.error} Nothing was saved.`)
+      return
+    }
+    setGraph(parsed.graph)
+    setOrigin('ai-assist')
+    setModel(modelName)
+    setAiNote(
+      `AI-mapped ${parsed.graph.room_objects.length} background points. Review them below and remove any that look wrong — manual points still work.`,
+    )
+    setError('')
   }
 
   function place(event: React.MouseEvent<HTMLImageElement>) {
@@ -94,6 +130,41 @@ export function Protect() {
     setGraph((current) => ({
       room_objects: [...current.room_objects.filter((item) => item.name !== selectedName), point],
     }))
+    setOrigin('manual')
+    setModel(null)
+  }
+
+  function takeSuggested(rects: SegmentRect[], modelName: string) {
+    setSuggested(rects)
+    setSuggestModel(modelName)
+    setError('')
+  }
+
+  function useSuggested() {
+    if (!suggested) return
+    const merged = mergeRectsToMask(suggested)
+    if (!merged) {
+      setError('The suggestion could not be used. Draw the mask yourself.')
+      return
+    }
+    setMask(clampMask(merged))
+    setMaskConfirmed(false)
+    setSuggested(null)
+    setError('')
+  }
+
+  function takeProposal(obj: RoomObject) {
+    // The mask may have moved since proposals were computed.
+    if (centerInsideMask(obj, mask)) {
+      setError('That region is now inside the mask and will not be kept.')
+      return
+    }
+    setError('')
+    setGraph((current) => ({
+      room_objects: [...current.room_objects.filter((item) => item.name !== obj.name), obj],
+    }))
+    setOrigin('manual')
+    setModel(null)
   }
 
   function dragMask(event: React.PointerEvent, mode: 'move' | 'resize') {
@@ -138,9 +209,12 @@ export function Protect() {
       maskConfirmed: Boolean(preview && maskConfirmed),
       personExcludedConfirmed: imported ? personAck : maskConfirmed,
       graph: { room_objects: cleaned, coverage_percent: graph.coverage_percent },
+      origin,
+      model,
     }
     sceneStore().save(scene)
     if (preview) URL.revokeObjectURL(preview)
+    setPhotoFile(null)
     navigate(`/protected/${scene.id}`)
   }
 
@@ -189,6 +263,13 @@ export function Protect() {
               <p>Your appearance is excluded from scene analysis.</p>
               {preview ? (
                 <>
+                  <SegmentAssist file={photoFile} onRects={takeSuggested} />
+                  {suggested && suggested.length > 0 && (
+                    <div className="actions">
+                      <Button variant="secondary" onClick={useSuggested}>Use suggested mask{suggestModel ? ` (${suggestModel})` : ''}</Button>
+                      <Button variant="ghost" onClick={() => { setSuggested(null); setSuggestModel(null) }}>Dismiss suggestion</Button>
+                    </div>
+                  )}
                   <div className="mask-frame" ref={frameRef}>
                     <img src={preview} alt="Your selected photograph. Cover the person with the opaque rectangle." onClick={place} draggable={false} />
                     <div
@@ -203,6 +284,22 @@ export function Protect() {
                     {graph.room_objects.map((obj) => (
                       <span key={obj.name} className="point-dot" style={{ left: `${obj.x / 10}%`, top: `${obj.y / 10}%` }} />
                     ))}
+                    {(suggested ?? []).map((rect, index) => (
+                      <span
+                        key={`suggest-${index}`}
+                        aria-hidden="true"
+                        style={{
+                          position: 'absolute',
+                          left: `${rect.x / 10}%`,
+                          top: `${rect.y / 10}%`,
+                          width: `${rect.width / 10}%`,
+                          height: `${rect.height / 10}%`,
+                          border: '2px dashed #E8B4B8',
+                          borderRadius: 4,
+                          pointerEvents: 'none',
+                        }}
+                      />
+                    ))}
                   </div>
                   <p className="muted">Drag the black rectangle until the person is inside it. Then choose a background object and click its corner. Points inside the mask are rejected.</p>
                   <div className="chips" role="listbox" aria-label="Background objects">
@@ -216,6 +313,23 @@ export function Protect() {
                     <input type="checkbox" checked={maskConfirmed} onChange={(event) => setMaskConfirmed(event.target.checked)} />
                     <span>The person is inside the opaque rectangle.</span>
                   </label>
+                  <p className="note">Masking hides the person from analysis but cannot guarantee anonymization — backgrounds and other details may still be identifying.</p>
+                  <AIAssist
+                    file={photoFile}
+                    mask={mask}
+                    ready={maskConfirmed}
+                    blockedReason={maskConfirmed ? null : 'Confirm the mask above before AI mapping.'}
+                    ctaLabel="Extract background with AI"
+                    onGraph={takeAIGraph}
+                  />
+                  {aiNote && <p role="status">{aiNote}</p>}
+                  <ProposalAssist
+                    file={photoFile}
+                    mask={mask}
+                    maskConfirmed={maskConfirmed}
+                    takenNames={new Set(graph.room_objects.map((item) => item.name))}
+                    onAdd={takeProposal}
+                  />
                 </>
               ) : (
                 <>

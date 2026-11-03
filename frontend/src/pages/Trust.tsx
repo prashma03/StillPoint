@@ -78,6 +78,7 @@ export function Trust() {
         <section>
           <h2>Privacy controls</h2>
           <p className="muted">Blind Mode hides the suspicious file. Deletion removes the saved records. The app does not include analytics.</p>
+          <p className="muted">Masking keeps the person out of analysis but cannot guarantee anonymization: backgrounds and other details may still be identifying.</p>
           <Button to="/settings" variant="secondary">Open settings</Button>
         </section>
         <section>

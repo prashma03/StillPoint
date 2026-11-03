@@ -43,7 +43,7 @@ export function Settings() {
             checked={settings.blindMode}
             onChange={(event) => update({ ...settings, blindMode: event.target.checked })}
           />
-          <span>Start checks with Blind Mode on. Suspicious photographs are not displayed either way.</span>
+          <span>Start checks with Blind Mode on. With Blind Mode off, a suspicious photo is shown for mapping only after you acknowledge viewing.</span>
         </label>
         <label className="checkline">
           <input
@@ -70,7 +70,7 @@ export function Settings() {
         <section className="panel">
           <h2>Engine rules</h2>
           <p className="muted">A shared object counts as aligned when its center moves fewer than 25 units on a 0–1000 scale. With at least 4 shared objects, 80% or more aligned is Likely derivative. 40% or less is No link found. Anything else is Cannot determine.</p>
-          <p className="muted">Photograph scene mapping, room scan, and sealed identity verification are not available in this build.</p>
+          <p className="muted">AI-assisted mapping needs the local backend at 127.0.0.1:8787 and a configured model key; otherwise manual mapping is the working path. Room scan and sealed identity verification are not available in this build.</p>
         </section>
         {message && <p role="status">{message}</p>}
         <div className="actions">

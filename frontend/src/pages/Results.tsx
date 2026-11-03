@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useCaseRecord } from '../components/case'
 import { EvidenceDiagram } from '../components/EvidenceDiagram'
 import { Button, MetricList, PageHeader, usePageTitle, useReducedMotion } from '../components/ui'
-import { metricRows } from '../lib/report'
+import { mappingLabel, metricRows, verdictExplanation } from '../lib/report'
 import { buildSample } from '../lib/sampleCase'
 import type { CaseRecord } from '../lib/types'
 
@@ -39,6 +39,7 @@ function ResultBody({ record, reduced, sampleQuery }: { record: CaseRecord; redu
         <span className={`status status-${tone}`}>{record.presentation.label}</span>
         <h2 style={{ marginTop: 12 }}>{record.presentation.summary}</h2>
         {record.presentation.note && <p className="muted">{record.presentation.note}</p>}
+        <p className="muted">Source mapping: {mappingLabel(record.sourceOrigin, record.sourceModel)} Suspect mapping: {mappingLabel(record.suspectOrigin, record.suspectModel)}</p>
         <MetricList rows={metricRows(record.result, record.hashComparison)} />
         {record.pythonNote && <p className="footer-note">{record.pythonNote}</p>}
       </section>
@@ -56,6 +57,26 @@ function ResultBody({ record, reduced, sampleQuery }: { record: CaseRecord; redu
         <Button to={sampleQuery ? `/proof?sample=${sampleQuery}` : '/proof'}>Open redacted proof</Button>
         <Button to="/check" variant="secondary">Run another check</Button>
       </div>
+      <section className="panel">
+        <h2>Why this verdict</h2>
+        <ul className="limits">
+          {verdictExplanation(record.result).map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+        {record.result.residuals.length > 0 && (
+          <>
+            <h2>Correspondence measurements</h2>
+            <ul className="limits">
+              {record.result.residuals.map((item) => (
+                <li key={item.name}>
+                  {item.name}: residual {item.distance.toFixed(2)}, shift ({item.dx.toFixed(2)}, {item.dy.toFixed(2)}) — {item.aligned ? 'aligned' : 'not aligned'}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
       <section className="panel">
         <h2>How a result is chosen</h2>
         <p className="muted">Likely derivative — the visible backgrounds strongly align from the same viewpoint.</p>
