@@ -132,9 +132,13 @@ class RobustnessTests(unittest.TestCase):
                 _, result = self.results[name]
                 self.assertEqual(result["verdict"], "Cannot determine")
 
-    def test_crop_loses_a_reference_point(self):
+    def test_crop_is_inconclusive(self):
+        # Scaled boxes leave the valid 0-1000 range (or the frame), so no
+        # correspondence survives. The engine reports Cannot determine,
+        # never a negative verdict, on cropped input.
         _, result = self.results["2 cropped"]
-        self.assertEqual(result["usable_points"], 3)
+        self.assertEqual(result["usable_points"], 0)
+        self.assertEqual(result["verdict"], "Cannot determine")
 
     def test_person_objects_do_not_change_the_verdict(self):
         baseline = compare_graphs(GRAPH1, GRAPH1)

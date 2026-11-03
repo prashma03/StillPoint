@@ -18,17 +18,22 @@ evidence-gated — zero or thin overlap can never produce an accusation.
 
 ## Technical architecture
 
-- **Frontend** (React + Vite + Three.js): Protect (mask + manual points,
+- **Frontend** (React + Vite + Three.js): Protect (mask by hand or
+  detection suggestion the user reviews and confirms; manual points,
   on-device edge-density proposals the user labels, or experimental AI
-  mapping), Check (sealed suspect flow), Results (verdict + residuals +
-  shift pattern), Proof (redacted export). Scene graphs, masks, and hashes
+  mapping), Check (sealed suspect graph flow, or suspect photo mapped
+  in-page with Blind Mode off plus a viewing acknowledgment and a
+  confirmed mask), Results (verdict + residuals + shift pattern + why
+  explanation), Proof (redacted export). Scene graphs, masks, and hashes
   persist in `localStorage`; image bytes are refused storage.
 - **On-device engine** (TypeScript, 1:1 port of the Python engine):
   normalized-name matching, 25-unit alignment threshold, ≥4 shared objects
   required for any decisive verdict, informational shift diagnostics.
 - **Local backend** (stdlib-only Python, `127.0.0.1:8787`): scene-graph
-  comparison, model-status reporting, and a consent-gated, key-gated
-  `/api/analyze` endpoint (JPEG/PNG/WebP, 8 MB cap, memory-only bytes).
+  comparison, model-status reporting, and consent-gated, key-gated
+  `/api/analyze` (scene graphs) and `/api/segment` (person rectangles
+  only; pixel masks discarded) endpoints (JPEG/PNG/WebP, 8 MB cap,
+  memory-only bytes).
 - **Validation**: a strict gate fails closed on malformed, duplicate,
   out-of-range, or person-named data; the comparison engine is a lenient
   backstop that never crashes.
@@ -39,34 +44,38 @@ evidence-gated — zero or thin overlap can never produce an accusation.
   `muse-wonder-1.0` scene-graph extraction (Responses API, `text.format`
   JSON schema) and `sam-3.1` person segmentation (Responses API,
   documented grammar parsed for boxes; mask payloads discarded).
-- Endpoint reachability verified credential-free (`GET /v1/models` → 401:
-  live, authentication required).
+- Endpoint reachability verified credential-free (`GET /v1/models` → 401
+  `invalid_api_key`: live, authentication required; independently
+  reproduced).
 - No authenticated model call has been made — no API key was available —
-  so live inference is honestly reported as unverified. Parsers,
-  validators, consent gating, and all error paths are tested with
-  fixtures, and the app falls back to manual mapping with explicit
-  "not configured" states instead of mock data.
+  so live inference is honestly reported as unverified. Request shapes
+  (single `/responses` path), parsers, validators, consent gating, and
+  all error paths are tested with fixtures, and the app falls back to
+  manual mapping with explicit "not configured" states instead of mock
+  data.
 
 ## What makes the approach distinctive
 
 - Privacy is structural, not a promise: masking precedes analysis,
-  suspect photos stay sealed, keys never reach the browser.
+  suspect photos stay sealed under Blind Mode, keys never reach the
+  browser, and every remote step needs explicit per-photo consent.
 - The verdict system prefers uncertainty over error: thin evidence yields
   `Cannot determine`, diagnostics never override thresholds, and every
   limitation is printed on the report itself.
-- Cross-language parity: the Python and TypeScript engines produce
-  byte-identical results on shared fixtures, tested on every change.
+- Cross-language parity: the Python and TypeScript engines assert the
+  same pinned fixtures (verdicts, counts, residuals, shifts).
 
 ## Limitations and responsible-use safeguards
 
-- Manual masking only; masking is not anonymization; backgrounds may
-  still identify. Stated in-app.
+- Masking (drawn or detection-suggested, always human-confirmed) is not
+  anonymization; backgrounds may still identify. Stated in-app.
 - No identity, consent, abuse, or legal conclusions from background
   matching — stated in-app, in reports, and in documentation.
-- No automatic segmentation, room scan, sealed identity verification, or
-  reviewer delivery in this build.
-- Real-image error rates are unmeasured (blocked on model access) and
-  unclaimed.
+- No room scan, sealed identity verification, or reviewer delivery in
+  this build.
+- Synthetic geometry evaluation only (0 false positives, 0 false
+  negatives, 3 inconclusive by design); real-image error rates are
+  unmeasured (blocked on model access) and unclaimed.
 
 ## Repository
 
@@ -80,6 +89,6 @@ npm install
 npm run dev      # open http://localhost:5173
 ```
 
-Optional local backend: `python -m backend.server` (AI assist activates
-only with `MODEL_API_KEY` configured). Follow `DEMO_SCRIPT.md` for the
-2–3 minute walkthrough.
+Optional local backend: `python -m backend.server` (AI assist and person
+detection activate only with `MODEL_API_KEY` configured). Follow
+`DEMO_SCRIPT.md` for the 2–3 minute walkthrough.

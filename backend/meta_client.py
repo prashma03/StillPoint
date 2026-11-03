@@ -5,13 +5,15 @@ Request shapes follow the official Meta Model API documentation
 - scene extraction with ``muse-wonder-1.0`` (image understanding +
   structured JSON output via ``text.format``)
 - person segmentation with ``sam-3.1`` (media segmentation over
-  ``POST /v1/responses``)
+  ``POST /responses`` on the base URL above)
 
 Authentication uses the ``MODEL_API_KEY`` environment variable, read only by
-this backend process. Request bodies, image bytes, and credentials are never
-logged. Every failure raises :class:`MetaAPIError` with a short
-machine-readable code; callers must surface the failure, never substitute
-mock data.
+this backend process. ``META_BASE_URL``, ``SCENE_MODEL``, and ``SEG_MODEL``
+may override the endpoint and model ids (for proxies or future models);
+otherwise the documented defaults below apply. Request bodies, image bytes,
+and credentials are never logged. Every failure raises
+:class:`MetaAPIError` with a short machine-readable code; callers must
+surface the failure, never substitute mock data.
 """
 
 import json
@@ -19,9 +21,14 @@ import os
 import urllib.error
 import urllib.request
 
-BASE_URL = "https://api.meta.ai/v1"
-SCENE_MODEL = "muse-wonder-1.0"
-SEG_MODEL = "sam-3.1"
+def _env(name, default):
+    value = os.environ.get(name)
+    return value.strip() if value and value.strip() else default
+
+
+BASE_URL = _env("META_BASE_URL", "https://api.meta.ai/v1")
+SCENE_MODEL = _env("SCENE_MODEL", "muse-wonder-1.0")
+SEG_MODEL = _env("SEG_MODEL", "sam-3.1")
 TIMEOUT_SECONDS = 60
 
 
@@ -153,12 +160,13 @@ def _output_text(response):
     return "".join(texts)
 
 
-def extract_scene_graph(data_url, system_prompt, json_schema, model=SCENE_MODEL):
+def extract_scene_graph(data_url, system_prompt, json_schema, model=None):
     """Run image-to-scene-graph extraction. Returns the raw JSON text.
 
     Raises MetaAPIError on any failure. The caller must validate the JSON
-    with backend.scene_validate before use.
+    with backend.validate before use.
     """
+    model = model or SCENE_MODEL
     payload = {
         "model": model,
         "input": [
@@ -179,15 +187,16 @@ def extract_scene_graph(data_url, system_prompt, json_schema, model=SCENE_MODEL)
             }
         },
     }
-    return _output_text(_post("/v1/responses", payload))
+    return _output_text(_post("/responses", payload))
 
 
-def segment_people(data_url, concept="person", model=SEG_MODEL):
+def segment_people(data_url, concept="person", model=None):
     """Run person segmentation. Returns raw output_text ("" means no match).
 
     Raises MetaAPIError on any failure. The caller must parse the text with
     backend.sam_parse, which discards mask payloads.
     """
+    model = model or SEG_MODEL
     payload = {
         "model": model,
         "input": [
@@ -203,7 +212,7 @@ def segment_people(data_url, concept="person", model=SEG_MODEL):
         "stream": False,
     }
     try:
-        return _output_text(_post("/v1/responses", payload))
+        return _output_text(_post("/responses", payload))
     except MetaAPIError as exc:
         if exc.code == "bad_response":
             # An empty lane is documented as a valid zero-match outcome, but

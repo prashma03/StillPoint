@@ -10,6 +10,7 @@ import base64
 import json
 import os
 import sys
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -20,9 +21,15 @@ from unittest import mock
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
+import backend.meta_client
 import backend.server
 from backend.meta_client import MetaAPIError
-from backend.server import Handler
+from backend.server import (
+    Handler,
+    load_dotenv,
+    refresh_model_config,
+    server_port,
+)
 
 ONE_PERSON = (
     "<0f>0<|box;x1=100;y1=100;x2=300;y2=500;w=1000;h=1000|>"
@@ -142,6 +149,179 @@ class SegmentEndpointTests(unittest.TestCase):
             )
         self.assertEqual(status, 502)
         self.assertEqual(body["error"], "timeout")
+
+
+class ClientRequestTests(unittest.TestCase):
+    def setUp(self):
+        self._saved = os.environ.get("MODEL_API_KEY")
+        os.environ["MODEL_API_KEY"] = "test-key-never-sent"
+        self.addCleanup(self._restore_key)
+
+    def _restore_key(self):
+        if self._saved is not None:
+            os.environ["MODEL_API_KEY"] = self._saved
+        else:
+            os.environ.pop("MODEL_API_KEY", None)
+
+    def _fake_response(self, payload):
+        body = json.dumps(payload).encode("utf-8")
+        fake = mock.MagicMock()
+        fake.read.return_value = body
+        context = mock.MagicMock()
+        context.__enter__.return_value = fake
+        context.__exit__.return_value = False
+        return context
+
+    def _output_text(self, text):
+        return {
+            "output": [
+                {"type": "message",
+                 "content": [{"type": "output_text", "text": text}]}
+            ]
+        }
+
+    def test_requests_hit_single_responses_path(self):
+        with mock.patch("urllib.request.urlopen") as stub:
+            stub.return_value = self._fake_response(self._output_text('{"room_objects": []}'))
+            backend.meta_client.extract_scene_graph("data:image/png;base64,AA", "p", {})
+            request = stub.call_args[0][0]
+            self.assertEqual(
+                request.full_url, backend.meta_client.BASE_URL + "/responses"
+            )
+            payload = json.loads(request.data.decode("utf-8"))
+            self.assertEqual(payload["model"], backend.meta_client.SCENE_MODEL)
+
+    def test_segment_requests_use_seg_model(self):
+        with mock.patch("urllib.request.urlopen") as stub:
+            stub.return_value = self._fake_response(self._output_text(""))
+            # Empty text is a zero-match outcome, surfaced as "".
+            result = backend.meta_client.segment_people("data:image/png;base64,AA")
+            self.assertEqual(result, "")
+            request = stub.call_args[0][0]
+            self.assertEqual(
+                request.full_url, backend.meta_client.BASE_URL + "/responses"
+            )
+            payload = json.loads(request.data.decode("utf-8"))
+            self.assertEqual(payload["model"], backend.meta_client.SEG_MODEL)
+
+
+class DotenvTests(unittest.TestCase):
+    def setUp(self):
+        self._saved = {
+            key: os.environ.get(key)
+            for key in ("MODEL_API_KEY", "META_BASE_URL", "SCENE_MODEL", "SEG_MODEL")
+        }
+        for key in self._saved:
+            os.environ.pop(key, None)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        for key, value in self._saved.items():
+            if value is not None:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
+
+    def _write(self, text):
+        handle = tempfile.NamedTemporaryFile(
+            "w", suffix=".env", delete=False, encoding="utf-8"
+        )
+        handle.write(text)
+        handle.close()
+        self.addCleanup(os.unlink, handle.name)
+        return handle.name
+
+    def test_missing_file_loads_nothing(self):
+        self.assertEqual(load_dotenv(os.path.join(tempfile.gettempdir(), "no-such.env")), 0)
+
+    def test_loads_whitelisted_keys_only(self):
+        path = self._write(
+            "# comment\n"
+            "MODEL_API_KEY=dotenv-key\n"
+            "SCENE_MODEL=custom-scene\n"
+            "EVIL=yes\n"
+            "MALFORMED LINE\n"
+            "SEG_MODEL=\n"
+        )
+        self.assertEqual(load_dotenv(path), 2)
+        self.assertEqual(os.environ["MODEL_API_KEY"], "dotenv-key")
+        self.assertEqual(os.environ["SCENE_MODEL"], "custom-scene")
+        self.assertNotIn("EVIL", os.environ)
+        self.assertNotIn("SEG_MODEL", os.environ)
+
+    def test_real_environment_wins(self):
+        os.environ["MODEL_API_KEY"] = "shell-key"
+        path = self._write("MODEL_API_KEY=dotenv-key\n")
+        self.assertEqual(load_dotenv(path), 0)
+        self.assertEqual(os.environ["MODEL_API_KEY"], "shell-key")
+
+
+class RefreshTests(unittest.TestCase):
+    def setUp(self):
+        self._saved_env = {
+            key: os.environ.get(key)
+            for key in ("META_BASE_URL", "SCENE_MODEL", "SEG_MODEL")
+        }
+        self._saved_module = (
+            backend.meta_client.BASE_URL,
+            backend.meta_client.SCENE_MODEL,
+            backend.meta_client.SEG_MODEL,
+        )
+        self._saved_server = (
+            backend.server.BASE_URL,
+            backend.server.SCENE_MODEL,
+            backend.server.SEG_MODEL,
+        )
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        for key, value in self._saved_env.items():
+            if value is not None:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
+        (backend.meta_client.BASE_URL, backend.meta_client.SCENE_MODEL,
+         backend.meta_client.SEG_MODEL) = self._saved_module
+        (backend.server.BASE_URL, backend.server.SCENE_MODEL,
+         backend.server.SEG_MODEL) = self._saved_server
+
+    def test_refresh_applies_overrides(self):
+        os.environ["SCENE_MODEL"] = "custom-scene"
+        os.environ["META_BASE_URL"] = "https://proxy.local/v1"
+        refresh_model_config()
+        self.assertEqual(backend.meta_client.SCENE_MODEL, "custom-scene")
+        self.assertEqual(backend.meta_client.BASE_URL, "https://proxy.local/v1")
+        self.assertEqual(backend.server.SCENE_MODEL, "custom-scene")
+        self.assertEqual(backend.server.BASE_URL, "https://proxy.local/v1")
+
+    def test_server_port_defaults_and_overrides(self):
+        saved = os.environ.get("STILLPOINT_PORT")
+
+        def restore():
+            if saved is not None:
+                os.environ["STILLPOINT_PORT"] = saved
+            else:
+                os.environ.pop("STILLPOINT_PORT", None)
+
+        self.addCleanup(restore)
+        os.environ.pop("STILLPOINT_PORT", None)
+        self.assertEqual(server_port(), 8787)
+        os.environ["STILLPOINT_PORT"] = "9999"
+        self.assertEqual(server_port(), 9999)
+        for bad in ("nope", "0", "70000", "-1"):
+            os.environ["STILLPOINT_PORT"] = bad
+            with self.subTest(value=bad):
+                self.assertEqual(server_port(), 8787)
+
+    def test_refresh_keeps_defaults_without_env(self):
+        for key in ("META_BASE_URL", "SCENE_MODEL", "SEG_MODEL"):
+            os.environ.pop(key, None)
+        backend.meta_client.BASE_URL = "https://api.meta.ai/v1"
+        backend.meta_client.SCENE_MODEL = "muse-wonder-1.0"
+        backend.meta_client.SEG_MODEL = "sam-3.1"
+        refresh_model_config()
+        self.assertEqual(backend.server.SCENE_MODEL, "muse-wonder-1.0")
+        self.assertEqual(backend.server.SEG_MODEL, "sam-3.1")
 
 
 if __name__ == "__main__":

@@ -12,7 +12,8 @@ npm run dev
 ```
 
 Open `http://localhost:5173` in a browser. Optional: run
-`python -m backend.server` in a second terminal for the local backend.
+`python -m backend.server` in a second terminal for the local backend
+(AI mapping and person detection activate only with `MODEL_API_KEY`).
 
 ## 0:00–0:30 — The problem
 
@@ -27,12 +28,14 @@ sample numbers are real engine output on bundled graphs.
 ## 0:30–1:15 — Protect a photo
 
 1. Go to **Protect**. Choose any benign room photo on the device.
-2. Drag the black rectangle over the person; confirm the mask.
-3. Note the honest labels: automatic person detection is unavailable, and
-   AI-assisted mapping shows "not configured" without a model key. Tap
-   **Find background regions**: on-device proposals appear — label two with
-   real names (`bed`, `poster`), discard the rest, then click two more
-   corners by hand (`door`, `rug`).
+2. Mask the person: with the backend and a model key, tap **Suggest person
+   mask**, review the dashed outline, use it — then confirm the mask.
+   Without a key, drag the black rectangle over the person by hand and
+   confirm. A suggestion is never auto-confirmed.
+3. Note the honest labels: without a model key, AI-assisted mapping shows
+   "not configured". Tap **Find background regions**: on-device proposals
+   appear — label two with real names (`bed`, `poster`), discard the rest,
+   then click two more corners by hand (`door`, `rug`).
 4. Continue through the coverage step and save. Emphasize: *the photograph
    was never stored — only names, positions, the mask rectangle, and a
    file hash.*
@@ -46,6 +49,9 @@ sample numbers are real engine output on bundled graphs.
    moved camera, and the engine refuses to accuse.
 4. Show the shift pattern line: uniform for the derivative, scattered for
    the moved camera. Note it never overrides the verdict.
+5. Mention: a real suspect photo can be mapped here too — Blind Mode off,
+   viewing acknowledged, person masked and confirmed — or kept sealed with
+   a scene graph file instead.
 
 ## 2:00–2:30 — Proof
 

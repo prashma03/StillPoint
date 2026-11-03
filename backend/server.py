@@ -352,9 +352,83 @@ class Handler(BaseHTTPRequestHandler):
         super().log_message(fmt, *args)
 
 
+# Only these keys are ever read from a .env file. Real environment
+# variables always win over the file.
+DOTENV_KEYS = (
+    "MODEL_API_KEY",
+    "META_BASE_URL",
+    "SCENE_MODEL",
+    "SEG_MODEL",
+    "STILLPOINT_PORT",
+)
+
+
+def load_dotenv(path):
+    """Load whitelisted KEY=VALUE lines into os.environ. Never raises.
+
+    Returns the number of keys set. Malformed lines are skipped. Existing
+    environment variables are never overwritten.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return 0
+    loaded = 0
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        key = key.strip()
+        if key not in DOTENV_KEYS or key in os.environ:
+            continue
+        value = value.strip().strip("'\"")
+        if not value:
+            continue
+        os.environ[key] = value
+        loaded += 1
+    return loaded
+
+
+def refresh_model_config():
+    """Re-read endpoint/model overrides after .env loading.
+
+    meta_client constants are import-time; call this once .env is loaded so
+    file-provided overrides take effect in this process and in /api/status.
+    """
+    import backend.meta_client as module
+
+    module.BASE_URL = module._env("META_BASE_URL", module.BASE_URL)
+    module.SCENE_MODEL = module._env("SCENE_MODEL", module.SCENE_MODEL)
+    module.SEG_MODEL = module._env("SEG_MODEL", module.SEG_MODEL)
+    global BASE_URL, SCENE_MODEL, SEG_MODEL
+    BASE_URL, SCENE_MODEL, SEG_MODEL = (
+        module.BASE_URL,
+        module.SCENE_MODEL,
+        module.SEG_MODEL,
+    )
+
+
+def server_port():
+    """Port for the local backend. STILLPOINT_PORT overrides the default."""
+    raw = os.environ.get("STILLPOINT_PORT", "")
+    try:
+        port = int(raw) if raw.strip() else PORT
+    except ValueError:
+        return PORT
+    return port if 1 <= port <= 65535 else PORT
+
+
 def main():
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"Stillpoint alignment listening on http://{HOST}:{PORT}")
+    repo_env = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"
+    )
+    load_dotenv(repo_env)
+    refresh_model_config()
+    port = server_port()
+    server = ThreadingHTTPServer((HOST, port), Handler)
+    print(f"Stillpoint alignment listening on http://{HOST}:{port}")
     server.serve_forever()
 
 
