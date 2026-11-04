@@ -34,20 +34,24 @@ export function Trust() {
   const store = useMemo(trustStore, [])
   const [revision, setRevision] = useState(0)
   const [selectedScene, setSelectedScene] = useState('')
+  const [declaredNonConsent, setDeclaredNonConsent] = useState(false)
   const [appealTarget, setAppealTarget] = useState('')
   const [appealKind, setAppealKind] = useState<'appeal' | 'counter-notice'>('appeal')
   const [appealText, setAppealText] = useState('')
   const [message, setMessage] = useState('')
   const scenes = sceneStore().list()
   const claims = store.listForOwner(ownerId)
+  const responses = store.responsesForOwner(ownerId)
   const summaries = store.reviewerSummary(ownerId)
 
   function submitClaim() {
+    if (!declaredNonConsent) { setMessage('Confirm the non-consent declaration to submit a claim.'); return }
     const scene = scenes.find((item) => item.id === selectedScene)
     if (!scene?.fileHash) { setMessage('Choose a saved source with a file hash. No photograph is submitted.'); return }
     try {
       store.submit(ownerId, scene.fileHash, freshEvidence())
       setSelectedScene('')
+      setDeclaredNonConsent(false)
       setMessage('Claim metadata saved on this device. Nothing was sent to a reviewer or service.')
       setRevision((n) => n + 1)
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Claim could not be saved.') }
@@ -69,20 +73,21 @@ export function Trust() {
 
     <section className="trust-section">
       <div className="section-heading"><div><span className="eyebrow">01 · Evidence</span><h2>Four independent categories</h2></div><p>Submitted and self-declared evidence is never displayed as verified.</p></div>
-      <div className="trust-evidence-grid">{evidenceInfo.map((item, i) => <article className="trust-evidence" key={item.kind}><div className="trust-evidence-top"><span className="trust-index">0{i + 1}</span><span className="trust-status">{statusText[item.kind === 'source-possession' ? 'submitted-unverified' : item.kind === 'consent' ? 'self-declared' : 'unavailable']}</span></div><h3>{item.title}</h3><p>{item.description}</p></article>)}</div>
+      <div className="trust-evidence-grid">{evidenceInfo.map((item, i) => <article className="trust-evidence" key={item.kind}><div className="trust-evidence-top"><span className="trust-index">0{i + 1}</span><span className="trust-status">{statusText[item.kind === 'source-possession' || item.kind === 'consent' ? 'not-provided' : 'unavailable']}</span></div><h3>{item.title}</h3><p>{item.description}</p></article>)}</div>
     </section>
 
     <section className="trust-section">
       <div className="section-heading"><div><span className="eyebrow">02 · Claim integrity</span><h2>Register a source claim</h2></div><p>Deterministic duplicate-source checks flag a conflict for review. Flags describe activity; they never label a person dishonest.</p></div>
-      <div className="trust-register panel"><label className="field"><span className="field-label">Saved source</span><select value={selectedScene} onChange={(event) => setSelectedScene(event.target.value)}><option value="">Choose a source with a file hash</option>{scenes.filter((scene) => scene.fileHash).map((scene) => <option key={scene.id} value={scene.id}>{scene.label} · {new Date(scene.createdAt).toLocaleDateString()}</option>)}</select></label><p className="muted">Only the source file hash and claim metadata are stored. Stillpoint does not store or submit the photo. Limit: 5 submissions per hour on this device.</p><Button onClick={submitClaim} disabled={!selectedScene}>Save a local claim</Button></div>
+      <div className="trust-register panel"><label className="field"><span className="field-label">Saved source</span><select value={selectedScene} onChange={(event) => setSelectedScene(event.target.value)}><option value="">Choose a source with a file hash</option>{scenes.filter((scene) => scene.fileHash).map((scene) => <option key={scene.id} value={scene.id}>{scene.label} · {new Date(scene.createdAt).toLocaleDateString()}</option>)}</select></label><label className="checkline trust-declaration"><input type="checkbox" checked={declaredNonConsent} onChange={(event) => setDeclaredNonConsent(event.target.checked)} /><span>I declare that I am reporting use of this image without consent. This is a self-declaration, not a verified or witnessed signature.</span></label><p className="muted">Only the source file hash and claim metadata are stored. Stillpoint does not store or submit the photo. Limit: 5 submissions per hour on this device.</p><Button onClick={submitClaim} disabled={!selectedScene || !declaredNonConsent}>Save a local claim</Button></div>
       {claims.length > 0 && <div className="trust-claims">{claims.map((claim) => <article className={`trust-claim ${claim.state === 'conflict-frozen' ? 'is-frozen' : ''}`} key={claim.id}>
         <div className="trust-claim-head"><div><span className="eyebrow">Claim · {claim.id.slice(0, 8)}</span><h3>{claim.outcome}</h3></div><span className={`claim-state ${claim.state === 'conflict-frozen' ? 'frozen' : ''}`}>{claim.state === 'conflict-frozen' ? 'Actions frozen' : claim.state.replaceAll('-', ' ')}</span></div>
         <p>{outcomeDescription(claim.outcome)}</p>
         <div className="claim-evidence-list">{claim.evidence.map(({ kind, status }) => <div key={kind}><span>{evidenceInfo.find((x) => x.kind === kind)?.title}</span><span>{statusText[status]}</span></div>)}</div>
         <div className="claim-meta"><span>Recorded {new Date(claim.createdAt).toLocaleString()}</span>{claim.conflictsWith.length > 0 && <span>{claim.conflictsWith.length} conflicting registration{claim.conflictsWith.length === 1 ? '' : 's'}</span>}</div>
         {claim.suspiciousFlags.length > 0 && <p className="trust-flag">Activity flagged for human review. This is not a finding about anyone's honesty.</p>}
-        <div className="actions"><Button variant="secondary" onClick={() => { setAppealTarget(claim.id); setAppealKind('appeal') }}>Add information / appeal</Button><Button variant="ghost" onClick={() => { setAppealTarget(claim.id); setAppealKind('counter-notice') }}>Submit counter-notice</Button></div>
+        <div className="actions"><Button variant="secondary" onClick={() => { setAppealTarget(claim.id); setAppealKind('appeal') }}>Add information / appeal</Button>{claim.conflictsWith[0] && <Button variant="ghost" onClick={() => { setAppealTarget(claim.conflictsWith[0]); setAppealKind('counter-notice') }}>Respond to conflicting claim</Button>}</div>
       </article>)}</div>}
+      {responses.length > 0 && <section className="trust-responses"><h3>Your private responses</h3>{responses.map((response) => <article key={response.id}><span>{response.kind === 'appeal' ? 'Appeal' : 'Counter-notice'} · {new Date(response.createdAt).toLocaleString()}</span><p>{response.text}</p><small>Only visible in this browser under your local profile.</small></article>)}</section>}
       {message && <p role="status" className="trust-message">{message}</p>}
     </section>
 
@@ -97,6 +102,6 @@ export function Trust() {
 
     <section className="trust-section trust-final"><div><span className="eyebrow">Stillpoint Guide</span><h2>What does a matching background mean?</h2><p>No. A background match may support a relationship between images, but it cannot establish identity, consent, ownership, or responsibility.</p></div><Button to="/settings" variant="secondary">Privacy settings</Button></section>
 
-    {appealTarget && <div className="trust-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAppealTarget('') }}><section className="trust-modal" role="dialog" aria-modal="true" aria-labelledby="response-title"><button className="trust-modal-close" onClick={() => setAppealTarget('')} aria-label="Close">×</button><span className="eyebrow">Private response · local only</span><h2 id="response-title">{appealKind === 'appeal' ? 'Add information or appeal' : 'Submit a counter-notice'}</h2><label className="field"><span className="field-label">Response type</span><select value={appealKind} onChange={(event) => setAppealKind(event.target.value as typeof appealKind)}><option value="appeal">Appeal / additional information</option><option value="counter-notice">Counter-notice</option></select></label><label className="field"><span className="field-label">Message</span><textarea value={appealText} maxLength={2000} onChange={(event) => setAppealText(event.target.value)} placeholder="Do not include images or identity documents." /></label><p className="muted">Saved only in this browser. It is not sent to the other claimant or a reviewer.</p><div className="actions"><Button onClick={saveAppeal}>Save response</Button><Button variant="secondary" onClick={() => setAppealTarget('')}>Cancel</Button></div></section></div>}
+    {appealTarget && <div className="trust-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAppealTarget('') }}><section className="trust-modal" role="dialog" aria-modal="true" aria-labelledby="response-title"><button className="trust-modal-close" onClick={() => setAppealTarget('')} aria-label="Close">×</button><span className="eyebrow">Private response · local only</span><h2 id="response-title">{appealKind === 'appeal' ? 'Add information or appeal' : 'Submit a counter-notice'}</h2><label className="field"><span className="field-label">Message</span><textarea value={appealText} maxLength={2000} onChange={(event) => setAppealText(event.target.value)} placeholder="Do not include images or identity documents." /></label><p className="muted">Saved only in this browser under your local profile. It is not sent to the other claimant or a reviewer.</p><div className="actions"><Button onClick={saveAppeal}>Save response</Button><Button variant="secondary" onClick={() => setAppealTarget('')}>Cancel</Button></div></section></div>}
   </div>
 }

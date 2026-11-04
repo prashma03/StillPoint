@@ -62,6 +62,17 @@ describe('Trust Stack integrity safeguards', () => {
     expect(() => store.submitAppeal('alice', id, 'appeal', 'data:image/jpeg;base64,AAAA')).toThrow()
   })
 
+  it('allows a related respondent to counter-notice while keeping the response private', () => {
+    const { store } = setup()
+    const aliceClaim = store.submit('alice', hash, evidence)
+    const bobClaim = store.submit('bob', hash, evidence)
+    store.submitAppeal('bob', aliceClaim, 'counter-notice', 'I did not submit this source claim.')
+    expect(store.responsesForOwner('bob')).toHaveLength(1)
+    expect(store.responsesForOwner('alice')).toEqual([])
+    expect(store.getForOwner('bob', bobClaim)?.state).toBe('conflict-frozen')
+    expect(JSON.stringify(store.auditForOwner('alice', aliceClaim))).not.toContain('did not submit')
+  })
+
   it('requires two distinct assigned reviewer approvals and never closes or enforces a claim automatically', () => {
     const { store } = setup()
     store.submit('alice', hash, evidence)

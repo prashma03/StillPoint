@@ -23,6 +23,10 @@ export type TrustState = { claims: TrustClaim[]; audits: TrustAudit[]; appeals: 
 const KEY = 'stillpoint.trust.v1'
 export const CLAIM_WINDOW_MS = 60 * 60 * 1000
 export const CLAIM_LIMIT = 5
+const evidenceKinds: EvidenceKind[] = ['source-possession', 'scene-access', 'identity', 'consent']
+const evidenceStatuses: EvidenceStatus[] = ['not-provided', 'self-declared', 'submitted-unverified', 'verified-externally', 'unavailable']
+const outcomes: ClaimOutcome[] = ['Supported Match', 'Insufficient Evidence', 'Conflicting Claims', 'Cannot Determine']
+const states: ClaimState[] = ['open', 'conflict-frozen', 'appeal-pending', 'human-review-required', 'closed']
 
 export function emptyTrustState(): TrustState { return { claims: [], audits: [], appeals: [], attempts: [] } }
 
@@ -30,7 +34,7 @@ function validState(value: unknown): TrustState {
   if (!value || typeof value !== 'object') return emptyTrustState()
   const v = value as Partial<TrustState>
   return {
-    claims: Array.isArray(v.claims) ? v.claims.filter((x): x is TrustClaim => !!x && typeof x.id === 'string' && typeof x.ownerId === 'string' && typeof x.sourceHash === 'string' && Array.isArray(x.evidence) && Array.isArray(x.conflictsWith) && Array.isArray(x.suspiciousFlags) && Array.isArray(x.assignedReviewerIds) && Array.isArray(x.attestations)) : [],
+    claims: Array.isArray(v.claims) ? v.claims.filter((x): x is TrustClaim => !!x && typeof x.id === 'string' && typeof x.ownerId === 'string' && typeof x.sourceHash === 'string' && /^[a-f0-9]{32,128}$/i.test(x.sourceHash) && typeof x.createdAt === 'string' && outcomes.includes(x.outcome) && states.includes(x.state) && Array.isArray(x.evidence) && x.evidence.every((e) => !!e && evidenceKinds.includes(e.kind) && evidenceStatuses.includes(e.status)) && Array.isArray(x.conflictsWith) && x.conflictsWith.every((id) => typeof id === 'string') && Array.isArray(x.suspiciousFlags) && x.suspiciousFlags.every((flag) => typeof flag === 'string') && Array.isArray(x.assignedReviewerIds) && x.assignedReviewerIds.every((id) => typeof id === 'string') && Array.isArray(x.attestations) && x.attestations.every((item) => !!item && typeof item.reviewerId === 'string' && (item.decision === 'approve' || item.decision === 'decline') && typeof item.at === 'string')) : [],
     audits: Array.isArray(v.audits) ? v.audits.filter((x): x is TrustAudit => !!x && typeof x.id === 'string' && typeof x.claimId === 'string' && typeof x.event === 'string' && typeof x.detail === 'string' && typeof x.at === 'string') : [],
     appeals: Array.isArray(v.appeals) ? v.appeals.filter((x): x is TrustAppeal => !!x && typeof x.id === 'string' && typeof x.claimId === 'string' && typeof x.ownerId === 'string' && typeof x.text === 'string') : [],
     attempts: Array.isArray(v.attempts) ? v.attempts.filter((x) => x && typeof x.ownerId === 'string' && typeof x.at === 'number') : [],
@@ -48,6 +52,7 @@ export function createTrustStore(memory: { getItem(key: string): string | null; 
   return {
     listForOwner(ownerId: string): TrustClaim[] { return load().claims.filter((claim) => claim.ownerId === ownerId) },
     getForOwner(ownerId: string, claimId: string): TrustClaim | null { return load().claims.find((claim) => claim.id === claimId && claim.ownerId === ownerId) ?? null },
+    responsesForOwner(ownerId: string): TrustAppeal[] { return load().appeals.filter((response) => response.ownerId === ownerId) },
     auditForOwner(ownerId: string, claimId: string): TrustAudit[] {
       const state = load()
       if (!state.claims.some((claim) => claim.id === claimId && claim.ownerId === ownerId)) return []
@@ -55,6 +60,7 @@ export function createTrustStore(memory: { getItem(key: string): string | null; 
     },
     submit(ownerId: string, sourceHash: string, evidence: TrustEvidence[]) {
       if (!ownerId || !sourceHash || !/^[a-f0-9]{32,128}$/i.test(sourceHash)) throw new Error('A valid source file hash is required.')
+      if (!Array.isArray(evidence) || evidence.length !== evidenceKinds.length || evidenceKinds.some((kind) => evidence.filter((item) => item?.kind === kind).length !== 1) || evidence.some((item) => !evidenceStatuses.includes(item?.status) || item.status === 'verified-externally')) throw new Error('Evidence categories are incomplete or claim an unavailable verification.')
       const state = load()
       const recent = state.attempts.filter((attempt) => attempt.ownerId === ownerId && now() - attempt.at < CLAIM_WINDOW_MS)
       if (recent.length >= CLAIM_LIMIT) throw new Error('Claim rate limit reached. Try again later.')
@@ -65,7 +71,7 @@ export function createTrustStore(memory: { getItem(key: string): string | null; 
       let next: TrustState = { ...state, claims: [...state.claims, claim], attempts: [...recent, { ownerId, at: now() }] }
       next = audit(next, claim.id, 'claim-submitted', 'Claim metadata recorded; no image content stored.')
       if (conflicts.length) {
-        next = { ...next, claims: next.claims.map((item) => item.id === claim.id || conflicts.some((old) => old.id === item.id) ? { ...item, outcome: 'Conflicting Claims', state: 'conflict-frozen', conflictsWith: [...new Set([...item.conflictsWith, ...(item.id === claim.id ? conflicts.map((c) => c.id) : [claim.id])])] } : item) }
+        next = { ...next, claims: next.claims.map((item) => item.id === claim.id || conflicts.some((old) => old.id === item.id) ? { ...item, outcome: 'Conflicting Claims', state: 'conflict-frozen', conflictsWith: [...new Set([...(item.id === claim.id ? [] : item.conflictsWith.filter((otherId) => otherId !== item.id)), ...(item.id === claim.id ? conflicts.map((c) => c.id) : [claim.id])])] } : item) }
         next = audit(next, claim.id, 'conflict-detected', 'Automated enforcement frozen pending independent human review.')
         for (const old of conflicts) next = audit(next, old.id, 'conflict-detected', 'A conflicting source registration requires review.')
       }
@@ -77,8 +83,12 @@ export function createTrustStore(memory: { getItem(key: string): string | null; 
       if (trimmed.length < 5 || trimmed.length > 2000) throw new Error('Enter between 5 and 2,000 characters.')
       if (/data:(?:image|video)\/|base64,/i.test(trimmed)) throw new Error('Do not attach image or video content to a private response.')
       const state = load()
-      const claim = state.claims.find((item) => item.id === claimId && item.ownerId === ownerId)
-      if (!claim) throw new Error('Claim not found.')
+      const claim = state.claims.find((item) => item.id === claimId)
+      const isOwner = claim?.ownerId === ownerId
+      const isRelatedCounterNotice = kind === 'counter-notice' && state.claims.some((item) => item.ownerId === ownerId && item.conflictsWith.includes(claimId))
+      // The claimant may submit either private response on their own claim;
+      // another claimant may file a counter-notice only for an actual conflict.
+      if (!claim || (!isOwner && !isRelatedCounterNotice)) throw new Error('Claim not found or no related conflict exists.')
       const appeal: TrustAppeal = { id: id(), claimId, ownerId, kind, text: trimmed, createdAt: new Date(now()).toISOString() }
       let next = { ...state, appeals: [...state.appeals, appeal], claims: state.claims.map((item) => item.id === claimId ? { ...item, state: item.state === 'conflict-frozen' ? 'conflict-frozen' as const : 'appeal-pending' as const } : item) }
       next = audit(next, claimId, kind === 'appeal' ? 'appeal-submitted' : 'counter-notice-submitted', 'Private response saved on this device; it was not sent.')
