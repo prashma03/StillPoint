@@ -33,6 +33,7 @@ import binascii
 import json
 import os
 import re
+import socket
 import time
 from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -57,7 +58,12 @@ PORT = 8787
 MAX_BYTES = 200_000
 ANALYZE_MAX_BYTES = 12_000_000
 MAX_IMAGE_BYTES = 8_000_000
-ALLOWED_ORIGINS = {"http://127.0.0.1:5173", "http://localhost:5173"}
+# Loopback-only dev origins. Vite auto-increments from 5173 when the port is
+# busy (and `vite preview` uses 4173), so the allowlist covers the spillover
+# ports too; anything else gets no ACAO header and the browser blocks the call.
+_VITE_HOSTS = ("http://127.0.0.1", "http://localhost")
+_VITE_PORTS = (5173, 5174, 5175, 4173)
+ALLOWED_ORIGINS = {f"{host}:{port}" for host in _VITE_HOSTS for port in _VITE_PORTS}
 # Model output is untrusted: cap what one analysis may return.
 MAX_MODEL_OBJECTS = 60
 MAX_MODEL_NAME = 80
@@ -541,12 +547,33 @@ def server_port():
     return port if 1 <= port <= 65535 else PORT
 
 
+def _port_in_use(port):
+    """True when something already answers on the backend port."""
+    probe = socket.socket()
+    probe.settimeout(0.5)
+    try:
+        probe.connect((HOST, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        probe.close()
+
+
 def build_server(port):
     """Create the bound backend server, or exit with guidance.
 
     A busy port is the common startup failure (usually a second copy of
-    this backend); report it plainly instead of a traceback.
+    this backend); report it plainly instead of a traceback. The connect
+    probe runs first because Windows allows two listeners on one port,
+    which would otherwise split traffic between old and new code.
     """
+    if _port_in_use(port):
+        print(
+            f"Stillpoint backend is already running on http://{HOST}:{port}. "
+            "Stop the other backend first (or set STILLPOINT_PORT) and retry."
+        )
+        raise SystemExit(1)
     try:
         return ThreadingHTTPServer((HOST, port), Handler)
     except OSError:

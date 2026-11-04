@@ -6,6 +6,7 @@ The model client is always mocked; these tests never touch the network.
 
 import json
 import os
+import socket
 import sys
 import unittest
 from http.server import ThreadingHTTPServer
@@ -70,8 +71,11 @@ class ChatEndpointTests(unittest.TestCase):
         self.assertEqual(messages[0]["role"], "system")
         self.assertIn("Current page: other", messages[0]["content"])
         self.assertEqual([item["role"] for item in messages[1:]], ["user", "assistant", "user"])
-        self.assertNotIn("private", json.dumps(messages))
-        self.assertNotIn("image", json.dumps(messages).lower())
+        # Leak check covers user-supplied content only: the fixed server-side
+        # system prompt legitimately uses words like "private" and "image".
+        conversation = json.dumps(messages[1:])
+        self.assertNotIn("private", conversation)
+        self.assertNotIn("image", conversation.lower())
 
     @patch.object(server, "is_configured", return_value=True)
     @patch.object(server, "chat_completion", side_effect=MetaAPIError("transport", "Could not reach the model service."))
@@ -119,10 +123,63 @@ class ChatEndpointTests(unittest.TestCase):
 
 class ServerStartupTests(unittest.TestCase):
     @patch.object(server, "ThreadingHTTPServer", side_effect=OSError("busy"))
-    def test_bind_conflict_exits_with_guidance(self, _server):
+    @patch.object(server, "_port_in_use", return_value=False)
+    def test_bind_conflict_exits_with_guidance(self, _probed, _server):
         with self.assertRaises(SystemExit) as ctx:
             server.build_server(8787)
         self.assertEqual(ctx.exception.code, 1)
+
+    def test_running_server_blocks_second_start(self):
+        blocker = socket.socket()
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen(1)
+        port = blocker.getsockname()[1]
+        try:
+            with self.assertRaises(SystemExit) as ctx:
+                server.build_server(port)
+            self.assertEqual(ctx.exception.code, 1)
+        finally:
+            blocker.close()
+
+
+class CORSHeaderTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        cls.thread = Thread(target=cls.httpd.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.base = f"http://127.0.0.1:{cls.httpd.server_port}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.thread.join(timeout=2)
+        cls.httpd.server_close()
+
+    def _allow_origin(self, method, path, origin):
+        request = Request(
+            self.base + path,
+            headers={"Origin": origin},
+            method=method,
+        )
+        with urlopen(request, timeout=2) as response:
+            return response.headers.get("Access-Control-Allow-Origin")
+
+    def test_allows_local_vite_ports(self):
+        for origin in (
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5175",
+            "http://localhost:4173",
+        ):
+            self.assertEqual(self._allow_origin("GET", "/api/status", origin), origin)
+            self.assertEqual(self._allow_origin("OPTIONS", "/api/chat", origin), origin)
+
+    def test_blocks_other_origins(self):
+        for origin in ("https://evil.example", "http://localhost:9999", "http://127.0.0.1:3000"):
+            self.assertIsNone(self._allow_origin("GET", "/api/status", origin))
+            self.assertIsNone(self._allow_origin("OPTIONS", "/api/chat", origin))
 
 
 if __name__ == "__main__":
