@@ -15,10 +15,12 @@ import { Trust } from './pages/Trust'
 import { Button } from './components/ui'
 import { StillpointGuide } from './components/StillpointGuide'
 import { AuthPage } from './pages/Auth'
+import { RouteScroll } from './components/RouteScroll'
 
 export function App() {
   return (
     <CaseProvider>
+      <RouteScroll />
       <a className="skip" href="#content">Skip to content</a>
       <Routes>
         <Route path="/login" element={<AuthPage mode="login" />} />

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useCaseRecord } from '../components/case'
 import { EvidenceDiagram } from '../components/EvidenceDiagram'
@@ -10,7 +10,6 @@ import { reviewStore } from '../lib/storage'
 
 export function Proof() {
   usePageTitle('Proof')
-  useLayoutEffect(() => { window.scrollTo(0, 0) }, [])
   const reduced = useReducedMotion()
   const [params] = useSearchParams()
   const { record } = useCaseRecord()
