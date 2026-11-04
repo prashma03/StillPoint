@@ -12,6 +12,10 @@
   consent flag, and returns coarse person rectangles from the segmentation
   model. Pixel masks are discarded: only rectangles leave this process.
   The caller must show the suggestion for human review and correction.
+- ``POST /api/chat`` accepts text-only conversation messages plus a page
+  label, and returns a model reply for the Stillpoint Guide. Image fields
+  are never read here, and messages matching the credential pattern are
+  refused. Requires a configured API key like the other model endpoints.
 
 Binds to 127.0.0.1 so requests never leave this computer. Image bytes are
 held in memory only and never written to disk or logs.
@@ -19,6 +23,9 @@ held in memory only and never written to disk or logs.
 Run from the repository root:
 
     python -m backend.server
+
+On Windows, double-click start-backend.bat (same folder) instead: it checks
+for a working Python interpreter first and explains what to install.
 """
 
 import base64
@@ -427,7 +434,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(503, {"error": "model_not_configured"})
             return
         page = body.get("page", "other")
-        if page not in CHAT_PAGES:
+        if not isinstance(page, str) or page not in CHAT_PAGES:
             page = "other"
         raw_messages = body.get("messages")
         if not isinstance(raw_messages, list) or not raw_messages:
@@ -534,6 +541,23 @@ def server_port():
     return port if 1 <= port <= 65535 else PORT
 
 
+def build_server(port):
+    """Create the bound backend server, or exit with guidance.
+
+    A busy port is the common startup failure (usually a second copy of
+    this backend); report it plainly instead of a traceback.
+    """
+    try:
+        return ThreadingHTTPServer((HOST, port), Handler)
+    except OSError:
+        print(
+            f"Stillpoint backend could not bind http://{HOST}:{port}. "
+            "Stop the other process using that port (or set STILLPOINT_PORT) "
+            "and retry."
+        )
+        raise SystemExit(1)
+
+
 def main():
     repo_env = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"
@@ -541,7 +565,7 @@ def main():
     load_dotenv(repo_env)
     refresh_model_config()
     port = server_port()
-    server = ThreadingHTTPServer((HOST, port), Handler)
+    server = build_server(port)
     print(f"Stillpoint alignment listening on http://{HOST}:{port}")
     server.serve_forever()
 

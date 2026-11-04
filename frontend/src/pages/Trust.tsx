@@ -39,6 +39,7 @@ export function Trust() {
   const [appealKind, setAppealKind] = useState<'appeal' | 'counter-notice'>('appeal')
   const [appealText, setAppealText] = useState('')
   const [message, setMessage] = useState('')
+  const [scenario, setScenario] = useState<'supported' | 'missing'>('supported')
   const scenes = sceneStore().list()
   const claims = store.listForOwner(ownerId)
   const responses = store.responsesForOwner(ownerId)
@@ -74,6 +75,22 @@ export function Trust() {
     <section className="trust-section">
       <div className="section-heading"><div><span className="eyebrow">01 · Evidence</span><h2>Four independent categories</h2></div><p>Submitted and self-declared evidence is never displayed as verified.</p></div>
       <div className="trust-evidence-grid">{evidenceInfo.map((item, i) => <article className="trust-evidence" key={item.kind}><div className="trust-evidence-top"><span className="trust-index">0{i + 1}</span><span className="trust-status">{statusText[item.kind === 'source-possession' || item.kind === 'consent' ? 'not-provided' : 'unavailable']}</span></div><h3>{item.title}</h3><p>{item.description}</p></article>)}</div>
+    </section>
+
+    <section className="trust-section trust-scenarios" aria-labelledby="scenario-title">
+      <div className="section-heading"><div><span className="eyebrow">SIMULATED · NO REAL CLAIM</span><h2 id="scenario-title">A safeguard is what happens next.</h2></div><p>These examples explain evidence handling. They do not represent a reviewer decision or a live verification result.</p></div>
+      <div className="chips" role="group" aria-label="Choose a simulated claim scenario">
+        <button className={`chip${scenario === 'supported' ? ' on' : ''}`} type="button" aria-pressed={scenario === 'supported'} onClick={() => setScenario('supported')}>A · Independent checks support a claim</button>
+        <button className={`chip${scenario === 'missing' ? ' on' : ''}`} type="button" aria-pressed={scenario === 'missing'} onClick={() => setScenario('missing')}>B · Background match, ownership missing</button>
+      </div>
+      <article className="scenario-panel panel" aria-live="polite">
+        <span className="status status-neutral">Simulated scenario</span>
+        <h3>{scenario === 'supported' ? 'Several independent checks agree' : 'Similarity alone is not ownership evidence'}</h3>
+        <p>{scenario === 'supported'
+          ? 'A source file link, a separately verified ownership record, and a valid consent record could support a claim when each comes from an independent check. Stillpoint’s current build cannot verify those external records or make a reviewer decision.'
+          : 'A background match may support a relationship between images. If independent ownership evidence is missing, the claim remains insufficient: no accusation or enforcement action should follow from the match alone.'}</p>
+        <div className="scenario-state"><strong>{scenario === 'supported' ? 'Evidence state · supported in principle' : 'Evidence state · insufficient'}</strong><span>{scenario === 'supported' ? 'A human review and response opportunity are still required.' : 'Pause the claim, preserve the state, and allow both sides to respond.'}</span></div>
+      </article>
     </section>
 
     <section className="trust-section">

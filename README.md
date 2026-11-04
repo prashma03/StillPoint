@@ -52,9 +52,11 @@ Local backend (Python stdlib, http://127.0.0.1:8787) — optional
 ├── GET  /api/status    {configured} boolean; never exposes credentials
 ├── POST /api/analyze   redacted image + consent flag + API key
 ├── POST /api/segment   image + consent flag + API key -> person rects only
+├── POST /api/chat      text-only Guide messages + page label + API key
     └── Meta Model API (https://api.meta.ai/v1) — key-gated
         ├── muse-wonder-1.0 scene-graph extraction (Responses API)
-        └── sam-3.1 person segmentation (Responses API, masks discarded)
+        ├── sam-3.1 person segmentation (Responses API, masks discarded)
+        └── chat replies for the Stillpoint Guide (Responses API, text only)
 ```
 
 Nothing leaves the computer except, with explicit per-photo consent, a
@@ -81,16 +83,23 @@ python eval/test_validate.py
 python eval/test_pipeline.py
 python eval/test_segment.py
 python eval/test_robustness.py
+python backend/test_chat.py
 python eval/parity.py
 python eval/smoke.py
 python eval/killtest.py
 ```
 
-Optional local backend (AI-assisted mapping and Python cross-check):
+Optional local backend (AI-assisted mapping, Guide chat, Python cross-check):
 
 ```text
 python -m backend.server   # listens on http://127.0.0.1:8787
 ```
+
+On Windows you can double-click `start-backend.bat` instead. It checks for
+a working Python 3.10+ first: if `python` only opens the Microsoft Store,
+install real Python from python.org (check “Add python.exe to PATH”) or
+run `winget install Python.Python.3.12`, then start the file again. Copy
+`.env.example` to `.env` and add your `MODEL_API_KEY` to enable AI replies.
 
 ## Environment variables
 

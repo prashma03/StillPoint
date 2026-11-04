@@ -1,14 +1,16 @@
-import { useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useCaseRecord } from '../components/case'
 import { EvidenceDiagram } from '../components/EvidenceDiagram'
+import EvidenceConnections from '../components/proof/evidence/EvidenceConnections'
 import { Button, Dialog, MetricList, PageHeader, usePageTitle, useReducedMotion } from '../components/ui'
-import { PROOF_LIMITS, PUNISHMENT_RULE, SCIENCE_LIMIT, mappingLabel, metricRows, reportText } from '../lib/report'
+import { PROOF_LIMITS, PUNISHMENT_RULE, SCIENCE_LIMIT, mappingLabel, metricRows, reportText, verdictExplanation } from '../lib/report'
 import { buildSample } from '../lib/sampleCase'
 import { reviewStore } from '../lib/storage'
 
 export function Proof() {
   usePageTitle('Proof')
+  useLayoutEffect(() => { window.scrollTo(0, 0) }, [])
   const reduced = useReducedMotion()
   const [params] = useSearchParams()
   const { record } = useCaseRecord()
@@ -62,69 +64,80 @@ export function Proof() {
   }
 
   return (
-    <div className="page">
-      <PageHeader
-        eyebrow="Proof"
-        title="Evidence without exposure"
-        lede="A drawing of the room lineup. No photograph travels with this report."
-      />
-      {!current ? (
-        <div className="panel">
-          <h2>No proof is open</h2>
-          <p className="muted">Finish a check, or open the sample document.</p>
-          <Button to="/results?sample=derivative">Open the sample proof</Button>
-        </div>
-      ) : (
-        <div className="stack">
-          {current.sample && <p className="note">Sample scene graphs. Not your photographs.</p>}
-          <section className={`panel verdict-${current.presentation.tone}`}>
-            <span className={`status status-${current.presentation.tone}`}>{current.presentation.label}</span>
-            <h2 style={{ marginTop: 12 }}>{current.presentation.summary}</h2>
-            {current.presentation.note && <p>{current.presentation.note}</p>}
-            <p className="muted">Source mapping: {mappingLabel(current.sourceOrigin, current.sourceModel)} Suspect mapping: {mappingLabel(current.suspectOrigin, current.suspectModel)}</p>
-            <MetricList rows={metricRows(current.result, current.hashComparison)} />
-          </section>
-          <EvidenceDiagram
-            source={current.sourceGraph}
-            suspect={current.suspectGraph}
-            residuals={current.result.residuals}
-            showLines={lines}
-            replayKey={replay}
-            reduced={reduced}
-            sourceCaption="Original viewpoint"
-            suspectCaption="Compared viewpoint"
+    <div className="page proof-page">
+      <div className={`proof-layout${current ? '' : ' proof-empty'}`}>
+        <section className="proof-main">
+          <PageHeader
+            eyebrow="Proof"
+            title="Evidence without exposure"
+            lede="A drawing of the room lineup. No photograph travels with this report."
           />
-          <div className="actions">
-            <Button variant="secondary" onClick={() => setReplay((value) => value + 1)}>Replay alignment</Button>
-            <Button variant="secondary" onClick={() => setLines((value) => !value)} pressed={lines}>
-              {lines ? 'Hide reference lines' : 'Show reference lines'}
-            </Button>
-            <Button variant="secondary" onClick={() => void copySummary()}>Copy summary</Button>
-            <Button variant="secondary" onClick={exportReport}>Export redacted report</Button>
-            <Button onClick={() => setOpen(true)}>Request review</Button>
-          </div>
-          {copied && <p role="status">{copied}</p>}
-          {saved && <p role="status">{saved}</p>}
-          <section>
-            <h2>What this proof does not establish</h2>
-            <ul className="limits">
-              {PROOF_LIMITS.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-            <p className="note">{SCIENCE_LIMIT}</p>
-            <p className="note rule">{PUNISHMENT_RULE}</p>
-            <p className="muted">Human review is not connected in this build. A review request stays on this device.</p>
-          </section>
-          <Dialog open={open} title="Request review" confirmLabel="Save on this device" onConfirm={saveReview} onClose={() => setOpen(false)}>
-            <p className="muted">This note is stored in this browser. It is not sent to a school, platform, or reviewer.</p>
-            <label className="field">
-              <span className="field-label">Note</span>
-              <textarea value={note} onChange={(event) => setNote(event.target.value)} />
-            </label>
-          </Dialog>
-        </div>
-      )}
+          {current && <>
+            {current.sample && <p className="note proof-sample">Sample scene graphs. Not your photographs.</p>}
+            <EvidenceDiagram
+              source={current.sourceGraph}
+              suspect={current.suspectGraph}
+              residuals={current.result.residuals}
+              showLines={lines}
+              replayKey={replay}
+              reduced={reduced}
+              sourceCaption="Original viewpoint"
+              suspectCaption="Compared viewpoint"
+              responsive
+            />
+          </>}
+        </section>
+        <aside className="proof-side">
+          {!current ? <section className="panel proof-empty-card">
+            <h2>No proof is open</h2>
+            <p className="muted">Finish a check, or open the sample document.</p>
+            <Button to="/results?sample=derivative">Open the sample proof</Button>
+          </section> : <>
+            <section className={`panel proof-result verdict-${current.presentation.tone}`} aria-labelledby="proof-summary-title">
+              <p className="eyebrow" id="proof-summary-title">Verification summary</p>
+              {current.sample && <span className="status status-neutral">Illustrative sample</span>}
+              <span className={`status status-${current.presentation.tone}`}>{current.presentation.label}</span>
+              <h2>{current.presentation.summary}</h2>
+              <p className="proof-match">{current.result.aligned_points} of {current.result.usable_points} reference points align.</p>
+              {current.presentation.note && <p>{current.presentation.note}</p>}
+              <p className="muted">Source mapping: {mappingLabel(current.sourceOrigin, current.sourceModel)} Suspect mapping: {mappingLabel(current.suspectOrigin, current.suspectModel)}</p>
+              <MetricList rows={metricRows(current.result, current.hashComparison)} />
+              <h3>What this result means</h3>
+              <ul className="limits proof-explanation">
+                {verdictExplanation(current.result).map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </section>
+            <section className="proof-evidence" aria-labelledby="evidence-connects-title">
+              <p className="eyebrow">How the Evidence Connects</p>
+              <h2 id="evidence-connects-title">Spatial correspondence, made visible.</h2>
+              <p className="muted">Stillpoint examines spatial relationships between background features to identify potential correspondences between images. The interactive reconstruction below is a <strong>simulated conceptual demonstration</strong> — it is not derived from your uploaded images and is not a verification result.</p>
+              <EvidenceConnections />
+            </section>
+            <div className="actions proof-actions">
+              <Button variant="secondary" onClick={() => setReplay((value) => value + 1)}>Replay alignment</Button>
+              <Button variant="secondary" onClick={() => setLines((value) => !value)} pressed={lines}>
+                {lines ? 'Hide reference lines' : 'Show reference lines'}
+              </Button>
+              <Button variant="secondary" onClick={() => void copySummary()}>Copy summary</Button>
+              <Button variant="secondary" onClick={exportReport}>Export redacted report</Button>
+              <Button onClick={() => setOpen(true)}>Request review</Button>
+            </div>
+            {copied && <p role="status">{copied}</p>}
+            {saved && <p role="status">{saved}</p>}
+            <section className="proof-limitations">
+              <h2>What this proof does not establish</h2>
+              <ul className="limits">{PROOF_LIMITS.map((item) => <li key={item}>{item}</li>)}</ul>
+              <p className="note">{SCIENCE_LIMIT}</p>
+              <p className="note rule">{PUNISHMENT_RULE}</p>
+              <p className="muted">Human review is not connected in this build. A review request stays on this device.</p>
+            </section>
+            <Dialog open={open} title="Request review" confirmLabel="Save on this device" onConfirm={saveReview} onClose={() => setOpen(false)}>
+              <p className="muted">This note is stored in this browser. It is not sent to a school, platform, or reviewer.</p>
+              <label className="field"><span className="field-label">Note</span><textarea value={note} onChange={(event) => setNote(event.target.value)} /></label>
+            </Dialog>
+          </>}
+        </aside>
+      </div>
     </div>
   )
 }

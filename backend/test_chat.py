@@ -1,11 +1,20 @@
-"""Focused tests for the text-only Stillpoint Guide endpoint."""
+"""Focused tests for the text-only Stillpoint Guide endpoint.
+
+Run from the repository root: python backend/test_chat.py
+The model client is always mocked; these tests never touch the network.
+"""
 
 import json
+import os
+import sys
 import unittest
 from http.server import ThreadingHTTPServer
 from threading import Thread
 from unittest.mock import patch
 from urllib.request import Request, urlopen
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
 
 from backend import server
 from backend.meta_client import MetaAPIError
@@ -79,6 +88,41 @@ class ChatEndpointTests(unittest.TestCase):
         status, result = self.post({"page": "home", "messages": [{"role": "user", "content": "x" * 3001}]})
         self.assertEqual(status, 400)
         self.assertEqual(result["error"], "invalid_message")
+
+    @patch.object(server, "is_configured", return_value=True)
+    def test_rejects_credentials_and_requires_a_last_user_turn(self, _configured):
+        status, result = self.post(
+            {"page": "home", "messages": [{"role": "user", "content": "my password is hunter2"}]}
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(result["error"], "sensitive_content")
+        status, result = self.post(
+            {"page": "home", "messages": [
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "hello"},
+            ]}
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(result["error"], "user_message_required")
+        status, result = self.post({"page": "home", "messages": []})
+        self.assertEqual(status, 400)
+        self.assertEqual(result["error"], "messages_required")
+
+    @patch.object(server, "is_configured", return_value=True)
+    @patch.object(server, "chat_completion", return_value="ok")
+    def test_non_string_page_falls_back_to_other(self, model, _configured):
+        status, _result = self.post({"page": ["home"], "messages": [{"role": "user", "content": "hi"}]})
+        self.assertEqual(status, 200)
+        messages = model.call_args.args[0]
+        self.assertIn("Current page: other", messages[0]["content"])
+
+
+class ServerStartupTests(unittest.TestCase):
+    @patch.object(server, "ThreadingHTTPServer", side_effect=OSError("busy"))
+    def test_bind_conflict_exits_with_guidance(self, _server):
+        with self.assertRaises(SystemExit) as ctx:
+            server.build_server(8787)
+        self.assertEqual(ctx.exception.code, 1)
 
 
 if __name__ == "__main__":

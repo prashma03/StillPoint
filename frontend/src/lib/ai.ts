@@ -28,8 +28,11 @@ export async function sendGuideMessage(messages: GuideMessage[], page: string): 
         : typeof body.message === 'string' ? body.message : 'AI is unavailable right now. Please try again shortly.' }
     }
     return { ok: true, reply: body.reply, model: typeof body.model === 'string' ? body.model : 'configured model' }
-  } catch {
-    return { ok: false, error: 'AI is unavailable: the local model backend could not be reached.' }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      return { ok: false, error: 'The local Guide backend timed out. Check that it is running, then retry.' }
+    }
+    return { ok: false, error: 'The Guide backend is not running at 127.0.0.1:8787. From the StillPoint project folder, start it with `python -m backend.server`, then retry. A model API key is also needed for AI replies.' }
   }
 }
 
