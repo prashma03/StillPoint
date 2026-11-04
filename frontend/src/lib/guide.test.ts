@@ -132,6 +132,7 @@ describe('guide chat client', () => {
     )
     expect(await sendGuideMessage([{ role: 'user', content: 'hi' }], 'home')).toEqual({
       ok: false,
+      code: 'backend_down',
       error:
         'The Guide backend is not running at 127.0.0.1:8787. From the StillPoint ' +
         'project folder, start it with `python -m backend.server`, then retry. ' +
@@ -148,7 +149,42 @@ describe('guide chat client', () => {
     )
     expect(await sendGuideMessage([{ role: 'user', content: 'hi' }], 'home')).toEqual({
       ok: false,
+      code: 'backend_timeout',
       error: 'The local Guide backend timed out. Check that it is running, then retry.',
     })
+  })
+})
+
+describe('guide status and navigation', () => {
+  it('does not treat a configured key as a live connection', () => {
+    expect(guideLinkFromStatus(true, false)).toBe('configured')
+    expect(guideLinkFromStatus(false, false)).toBe('not_configured')
+    expect(guideLinkFromStatus(undefined, true)).toBe('unavailable')
+    expect(guideLinkLabel('connecting')).toBe('Connecting')
+    expect(guideLinkLabel('configured')).toBe('Configured')
+    expect(guideLinkLabel('available')).toBe('Available')
+    expect(guideLinkLabel('unavailable')).toBe('Temporarily unavailable')
+    expect(guideLinkLabel('configured')).not.toMatch(/connected/i)
+    expect(guideLinkAfterFailure('configured', 'rate_limited')).toBe('unavailable')
+    expect(guideLinkAfterFailure('configured', 'timeout')).toBe('unavailable')
+    expect(guideLinkAfterFailure('configured', 'auth')).toBe('unavailable')
+    expect(guideLinkAfterFailure('available', 'bad_request')).toBe('available')
+  })
+
+  it('explains the Protect upload control without claiming to be the model', () => {
+    const help = guideFallback('protect')
+    expect(help).toMatch(/not a model reply/)
+    expect(help).toMatch(/Choose a photograph/)
+    expect(help).toMatch(/Start with the original photo/)
+    expect(help).not.toMatch(/Meta generated|AI generated/)
+    expect(guideFallback('check')).toMatch(/Add the suspicious file/)
+  })
+
+  it('renders bold markers without leaving the asterisks visible', () => {
+    expect(guideSegments('You are on **Protect** now.')).toEqual([
+      { kind: 'text', text: 'You are on ' },
+      { kind: 'strong', text: 'Protect' },
+      { kind: 'text', text: ' now.' },
+    ])
   })
 })

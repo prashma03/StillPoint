@@ -18,14 +18,12 @@ import {
   isConfirmed,
   landmarkCenter,
   landmarkToPercent,
-  mergeLandmarks,
   pointOriginOf,
-  sanitizeAiPoints,
   validateRename,
 } from '../lib/landmarks'
 import { decodeToPixels } from '../lib/redact'
 import { mergeRectsToMask } from '../lib/segment'
-import { acceptVisualSuggestion, canAdvanceProtectStep, categoryLabel, imageClickToCoordinates, placeManualAnnotation, suggestionFromRegion, validatePhotoSelection, type ProtectCategory, type VisualSuggestion } from '../lib/protectFlow'
+import { acceptVisualSuggestion, canAdvanceProtectStep, categoryLabel, imageClickToCoordinates, placeManualAnnotation, removeAnnotation, renameAnnotation, suggestionFromAiPoint, suggestionFromRegion, validatePhotoSelection, type ProtectCategory, type VisualSuggestion } from '../lib/protectFlow'
 import { sceneStore } from '../lib/storage'
 import type { MappingOrigin, Mask, RoomObject, SceneGraph } from '../lib/types'
 
@@ -256,26 +254,13 @@ export function Protect() {
       setError(`The AI output was rejected: ${parsed.error} Nothing was saved.`)
       return
     }
-    // Merge, never overwrite: existing manual work always survives AI mapping.
-    const { kept, dropped } = sanitizeAiPoints(parsed.graph.room_objects, {
-      mask: preview ? mask : null,
-      limit: landmarkLimit,
-      existing: graph.room_objects,
-    })
-    const merged = mergeLandmarks(graph, kept)
-    setGraph(merged.graph)
-    if (merged.added > 0) setModel(modelName)
-    const skipped =
-      dropped.outOfBounds + dropped.inMask + dropped.duplicate + dropped.personNamed + dropped.overLimit
-    const parts = [`AI suggested ${merged.added} background point(s). Review each amber point below — drag to correct, then confirm.`]
-    if (merged.skipped > 0) parts.push(`${merged.skipped} kept your existing version.`)
-    if (dropped.inMask > 0) parts.push(`${dropped.inMask} inside the cover were rejected.`)
-    if (dropped.duplicate > 0) parts.push(`${dropped.duplicate} duplicate(s) were rejected.`)
-    if (dropped.outOfBounds > 0) parts.push(`${dropped.outOfBounds} out-of-bounds point(s) were rejected.`)
-    if (dropped.personNamed > 0) parts.push(`${dropped.personNamed} person-named object(s) were excluded.`)
-    if (dropped.overLimit > 0) parts.push(`${dropped.overLimit} beyond the limit of ${landmarkLimit} were held back.`)
-    if (merged.added === 0 && skipped === 0) parts.push('Nothing new arrived.')
-    setAiNote(parts.join(' '))
+    const candidates = parsed.graph.room_objects.filter((item) => {
+      const name = item.name.toLowerCase().trim()
+      return !name.includes('person') && !name.includes('human')
+    }).slice(0, landmarkLimit)
+    setVisualSuggestions(candidates.map(suggestionFromAiPoint))
+    setModel(modelName)
+    setAiNote(candidates.length ? `Review ${candidates.length} AI suggestions on the photo. Accept, correct, or dismiss each one before it is added.` : 'AI did not identify any background features. You can mark them by hand.')
     setError('')
   }
 
@@ -321,6 +306,8 @@ export function Protect() {
     const point = acceptVisualSuggestion(suggestion, graph.room_objects, category)
     if (!point) return
     if (centerInMaskWithMargin(point, mask)) { setError('That suggestion overlaps the person cover. Dismiss it or choose a different region.'); return }
+    const center = landmarkCenter(point)
+    if (tooClose(null, center.x, center.y)) { setError('That suggestion overlaps another selected feature. Dismiss it or mark the other feature instead.'); return }
     setPointHistory((history) => [...history, graph.room_objects])
     setGraph((current) => ({ ...current, room_objects: [...current.room_objects, point] }))
     setVisualSuggestions((current) => current.map((item) => item.id === suggestion.id ? { ...item, accepted: true } : item))
@@ -331,6 +318,8 @@ export function Protect() {
   function undoAnnotation() {
     const previous = pointHistory.at(-1)
     if (!previous) return
+    const removed = graph.room_objects.filter((point) => !previous.some((saved) => saved.name === point.name))
+    if (removed.length) setVisualSuggestions((current) => current.map((suggestion) => removed.some((point) => point.x === suggestion.x && point.y === suggestion.y) ? { ...suggestion, accepted: false } : suggestion))
     setGraph((current) => ({ ...current, room_objects: previous }))
     setPointHistory((history) => history.slice(0, -1))
     setNotice('Last annotation undone.')
@@ -521,9 +510,7 @@ export function Protect() {
     setPointHistory((history) => [...history, graph.room_objects])
     setGraph((current) => ({
       ...current,
-      room_objects: current.room_objects.map((item) =>
-        item.name === name ? { ...item, name: checked.name, confirmed: true } : item,
-      ),
+      room_objects: renameAnnotation(current.room_objects, name, checked.name),
     }))
   }
 
@@ -545,7 +532,7 @@ export function Protect() {
 
   function removePoint(name: string) {
     setPointHistory((history) => [...history, graph.room_objects])
-    setGraph((current) => ({ ...current, room_objects: current.room_objects.filter((item) => item.name !== name) }))
+    setGraph((current) => ({ ...current, room_objects: removeAnnotation(current.room_objects, name) }))
     setNotice(`Removed “${name}”.`)
   }
 
@@ -914,7 +901,7 @@ export function Protect() {
                     <div className="photo-annotation-stage">{photoCanvas(annotationMode, true)}</div>
                     <div className="actions"><Button variant="secondary" disabled={pointHistory.length === 0} onClick={undoAnnotation}>Undo last marker</Button><Button variant="ghost" onClick={() => setAnnotationMode(false)}>Cancel marking</Button></div>
                     <section className="selected-features"><h3>Selected features <span>{graph.room_objects.length}</span></h3>{graph.room_objects.length === 0 ? <p className="muted">Your marked features will appear here.</p> : graph.room_objects.map((point) => <div key={point.name} className="feature-row"><span className={`feature-source ${pointOriginOf(point) === 'ai' || pointOriginOf(point) === 'local' ? 'suggested' : ''}`}>{point.name}<small>{pointOriginOf(point) === 'manual' ? 'Marked by you' : pointOriginOf(point) === 'ai' ? 'AI suggestion · reviewed' : 'On-device suggestion'}</small></span><div className="actions"><button className="btn btn-ghost" type="button" onClick={() => setEditingPoint(point.name === editingPoint ? null : point.name)}>{editingPoint === point.name ? 'Close edit' : 'Edit label'}</button><button className="btn btn-ghost" type="button" onClick={() => removePoint(point.name)}>Remove</button></div>{editingPoint === point.name && <select aria-label={`Edit ${point.name} category`} value={point.name.replace(/ \d+$/, '')} onChange={(event) => { renamePoint(point.name, event.target.value); setEditingPoint(null) }}>{['window','door','desk','bed','poster','chair','shelf','table','rug','other background feature'].map((name) => <option key={name} value={name}>{categoryLabel(name === 'other background feature' ? 'other' : name as ProtectCategory)}</option>)}</select>}</div>)}</section>
-                    <ProposalAssist file={photoFile} mask={mask} maskConfirmed={maskConfirmed} takenNames={new Set(graph.room_objects.map((point) => point.name))} onAdd={takeProposal} visualOnly onSuggestions={(regions) => setVisualSuggestions(regions.map(suggestionFromRegion))} />
+                    <ProposalAssist file={photoFile} mask={mask} maskConfirmed={maskConfirmed} takenNames={new Set(graph.room_objects.map((point) => point.name))} onAdd={takeProposal} visualOnly onSuggestions={(regions) => setVisualSuggestions(regions.map((region, index) => suggestionFromRegion(region, index)))} />
                     {visualSuggestions.filter((item) => !item.accepted).map((item, index) => <div className="suggestion-review" key={item.id}><div><strong>{item.label === 'Unidentified object' ? 'Unidentified object' : `Suggested ${item.label.toLowerCase()}`}</strong><span>On-device visual region {index + 1}; this tool does not recognize object categories.</span></div><select aria-label={`Correct suggestion ${index + 1} category`} value={item.label === 'Unidentified object' ? 'other' : item.label.toLowerCase()} onChange={(event) => setVisualSuggestions((current) => current.map((entry) => entry.id === item.id ? { ...entry, label: event.target.value === 'other' ? 'Unidentified object' : categoryLabel(event.target.value as ProtectCategory) } : entry))}>{['window','door','desk','bed','poster','chair','shelf','table','rug','other'].map((name) => <option key={name} value={name}>{name === 'other' ? 'Unidentified object' : `Suggested ${name}`}</option>)}</select><Button variant="secondary" onClick={() => acceptSuggestion(item, (item.label === 'Unidentified object' ? 'other' : item.label.toLowerCase()) as ProtectCategory)}>Accept suggestion</Button><Button variant="ghost" onClick={() => setVisualSuggestions((current) => current.filter((entry) => entry.id !== item.id))}>Dismiss</Button></div>)}
                     <AIAssist file={photoFile} mask={mask} ready={maskConfirmed} blockedReason={maskConfirmed ? null : 'Confirm the person cover above before using AI.'} ctaLabel="Suggest background features with AI" onGraph={takeAIGraph} consentScope={consentScope(fileHash, 'analyze', mask)} maxPoints={landmarkLimit} />
                     {aiNote && <p role="status">{aiNote}</p>}

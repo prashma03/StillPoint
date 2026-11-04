@@ -186,7 +186,7 @@ export default function EvidenceConnections() {
       <button type="button" aria-label="Zoom in" onClick={() => zoomCamera(0.85)}>Zoom in</button>
       <button type="button" aria-label="Zoom out" onClick={() => zoomCamera(1.15)}>Zoom out</button>
       <button type="button" onClick={() => void togglePresentation()}>{presenting ? 'Exit presentation' : 'Presentation mode'}</button>
-      <label className={styles.timeline}>Progress <input aria-label="Demonstration progress" type="range" min="0" max="1" step="0.01" value={progress} onChange={(event) => { setPlaying(false); setProgress(Number(event.target.value)) }} /></label>
+      <label className={styles.timeline}>Scrub <input aria-label="Scrub demonstration timeline" type="range" min="0" max="1" step="0.01" value={progress} onChange={(event) => { setPlaying(false); setProgress(Number(event.target.value)) }} /></label>
     </div>
     <div className={styles.bottom}>
       <div className={styles.panel}><h3>Explore a reference point</h3>

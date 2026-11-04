@@ -3,7 +3,7 @@ import type { RoomObject } from './types'
 
 export const PROTECT_CATEGORIES = ['window', 'door', 'desk', 'bed', 'poster', 'chair', 'shelf', 'table', 'rug', 'other'] as const
 export type ProtectCategory = (typeof PROTECT_CATEGORIES)[number]
-export type VisualSuggestion = { id: string; x: number; y: number; width: number; height: number; label: string; accepted: boolean }
+export type VisualSuggestion = { id: string; x: number; y: number; width: number; height: number; label: string; accepted: boolean; source: 'ai' | 'on-device' }
 
 export function canAdvanceProtectStep(step: number, hasPhoto: boolean, maskConfirmed: boolean, importedConfirmed: boolean) {
   if (step === 1) return hasPhoto
@@ -36,8 +36,22 @@ export function placeManualAnnotation(category: ProtectCategory, x: number, y: n
   return { name, x, y, width: 0, height: 0, pointOrigin: 'manual', confirmed: true }
 }
 
-export function suggestionFromRegion(region: { x: number; y: number; width: number; height: number }, index: number): VisualSuggestion {
-  return { id: `region-${index}-${region.x}-${region.y}`, ...region, label: 'Unidentified object', accepted: false }
+export function renameAnnotation(points: RoomObject[], previousName: string, nextName: string): RoomObject[] {
+  return points.map((point) => point.name === previousName ? { ...point, name: nextName, confirmed: true } : point)
+}
+
+export function removeAnnotation(points: RoomObject[], name: string): RoomObject[] {
+  return points.filter((point) => point.name !== name)
+}
+
+export function suggestionFromRegion(region: { x: number; y: number; width: number; height: number }, index: number, source: VisualSuggestion['source'] = 'on-device'): VisualSuggestion {
+  return { id: `${source}-${index}-${region.x}-${region.y}`, ...region, label: 'Unidentified object', accepted: false, source }
+}
+
+export function suggestionFromAiPoint(point: RoomObject, index: number): VisualSuggestion {
+  const normalizedName = point.name.toLowerCase().trim().replace(/\s+\d+$/, '')
+  const recognized = PROTECT_CATEGORIES.find((category) => category !== 'other' && normalizedName === category)
+  return { ...suggestionFromRegion(point, index, 'ai'), label: recognized ? categoryLabel(recognized) : 'Unidentified object' }
 }
 
 export function acceptVisualSuggestion(suggestion: VisualSuggestion, graph: RoomObject[], category: ProtectCategory): RoomObject | null {
@@ -48,7 +62,7 @@ export function acceptVisualSuggestion(suggestion: VisualSuggestion, graph: Room
     y: suggestion.y,
     width: suggestion.width,
     height: suggestion.height,
-    pointOrigin: 'local',
+    pointOrigin: suggestion.source === 'ai' ? 'ai' : 'local',
     confirmed: true,
   }
 }

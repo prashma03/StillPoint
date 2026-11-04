@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptVisualSuggestion, canAdvanceProtectStep, imageClickToCoordinates, placeManualAnnotation, PROTECT_CATEGORIES, suggestionFromRegion, validatePhotoSelection } from './protectFlow'
+import { acceptVisualSuggestion, canAdvanceProtectStep, imageClickToCoordinates, placeManualAnnotation, PROTECT_CATEGORIES, suggestionFromAiPoint, suggestionFromRegion, validatePhotoSelection } from './protectFlow'
 import type { RoomObject } from './types'
 
 describe('guided Protect annotations', () => {
@@ -30,6 +30,12 @@ describe('guided Protect annotations', () => {
     const accepted = acceptVisualSuggestion(suggestion, [], 'window')
     expect(accepted).toMatchObject({ name: 'window', x: 200, y: 400, width: 120, height: 80, pointOrigin: 'local', confirmed: true })
     expect(acceptVisualSuggestion({ ...suggestion, accepted: true }, [], 'other')).toBeNull()
+  })
+
+  it('labels AI suggestions only when a recognized category came back from the model', () => {
+    expect(suggestionFromAiPoint({ name: 'window', x: 20, y: 30, width: 50, height: 60 }, 0).label).toBe('Window')
+    expect(suggestionFromAiPoint({ name: 'window 2', x: 20, y: 30, width: 50, height: 60 }, 1).label).toBe('Window')
+    expect(suggestionFromAiPoint({ name: 'decorative rectangular thing', x: 20, y: 30, width: 50, height: 60 }, 2).label).toBe('Unidentified object')
   })
 
   it('supports user correction or dismiss by category selection and omission from accepted output', () => {

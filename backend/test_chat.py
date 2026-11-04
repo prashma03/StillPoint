@@ -4,11 +4,13 @@ Run from the repository root: python backend/test_chat.py
 The model client is always mocked; these tests never touch the network.
 """
 
+import io
 import json
 import os
 import socket
 import sys
 import unittest
+import urllib.error
 from http.server import ThreadingHTTPServer
 from threading import Thread
 from unittest.mock import patch
@@ -17,8 +19,8 @@ from urllib.request import Request, urlopen
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from backend import server
-from backend.meta_client import MetaAPIError
+from backend import meta_client, server
+from backend.meta_client import MetaAPIError, chat_completion
 
 
 class ChatEndpointTests(unittest.TestCase):
@@ -113,6 +115,21 @@ class ChatEndpointTests(unittest.TestCase):
         self.assertEqual(result["error"], "messages_required")
 
     @patch.object(server, "is_configured", return_value=True)
+    @patch.object(server, "chat_completion", return_value="Use Choose a photograph on step 1.")
+    def test_protect_page_tells_the_model_about_the_real_upload_control(self, model, _configured):
+        status, result = self.post({
+            "page": "protect",
+            "messages": [{"role": "user", "content": "where do I upload my picture?"}],
+        })
+        self.assertEqual(status, 200)
+        self.assertIn("Choose a photograph", result["reply"])
+        prompt = model.call_args.args[0][0]["content"]
+        self.assertIn("Current page: protect", prompt)
+        self.assertIn("Choose a photograph", prompt)
+        self.assertIn("Start with the original photo", prompt)
+        self.assertNotIn("**", prompt)
+
+    @patch.object(server, "is_configured", return_value=True)
     @patch.object(server, "chat_completion", return_value="ok")
     def test_non_string_page_falls_back_to_other(self, model, _configured):
         status, _result = self.post({"page": ["home"], "messages": [{"role": "user", "content": "hi"}]})
@@ -180,6 +197,138 @@ class CORSHeaderTests(unittest.TestCase):
         for origin in ("https://evil.example", "http://localhost:9999", "http://127.0.0.1:3000"):
             self.assertIsNone(self._allow_origin("GET", "/api/status", origin))
             self.assertIsNone(self._allow_origin("OPTIONS", "/api/chat", origin))
+
+
+class ResponsesPayloadTests(unittest.TestCase):
+    """The live failure was HTTP 400: assistant history sent as input_text."""
+
+    def _response(self, text):
+        class Resp:
+            def read(self):
+                return json.dumps({
+                    "output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}]
+                }).encode()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        return Resp()
+
+    def _http_error(self, status, payload):
+        return urllib.error.HTTPError(
+            "https://api.meta.ai/v1/responses",
+            status,
+            "error",
+            hdrs=None,
+            fp=io.BytesIO(json.dumps(payload).encode()),
+        )
+
+    def test_first_greeting_has_no_assistant_replay(self):
+        captured = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured["body"] = json.loads(request.data.decode())
+            captured["timeout"] = timeout
+            return self._response("Hello. How can I help?")
+
+        with patch.dict(os.environ, {"MODEL_API_KEY": "test-key-not-a-secret"}), patch.object(
+            meta_client.urllib.request, "urlopen", fake_urlopen
+        ):
+            reply = chat_completion([
+                {"role": "system", "content": "guide"},
+                {"role": "user", "content": "hi"},
+            ])
+        self.assertEqual(reply, "Hello. How can I help?")
+        kinds = [(item["role"], item["content"][0]["type"]) for item in captured["body"]["input"]]
+        self.assertEqual(kinds, [("system", "input_text"), ("user", "input_text")])
+        self.assertNotIn("test-key-not-a-secret", json.dumps(captured["body"]))
+
+    def test_follow_up_replays_assistant_as_output_text(self):
+        captured = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured["body"] = json.loads(request.data.decode())
+            return self._response("Use Choose a photograph.")
+
+        with patch.dict(os.environ, {"MODEL_API_KEY": "test-key-not-a-secret"}), patch.object(
+            meta_client.urllib.request, "urlopen", fake_urlopen
+        ):
+            reply = chat_completion([
+                {"role": "system", "content": "Current page: protect."},
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "Hello."},
+                {"role": "user", "content": "where do I upload my picture?"},
+            ])
+        self.assertIn("Choose a photograph", reply)
+        kinds = [(item["role"], item["content"][0]["type"]) for item in captured["body"]["input"]]
+        self.assertEqual(kinds, [
+            ("system", "input_text"),
+            ("user", "input_text"),
+            ("assistant", "output_text"),
+            ("user", "input_text"),
+        ])
+        self.assertNotIn("image_url", json.dumps(captured["body"]))
+
+    def test_rejected_request_logs_status_without_the_prompt(self):
+        body = {
+            "error": {
+                "code": None,
+                "message": "content type `input_text` is not valid on `assistant` messages",
+                "param": "input_text",
+                "type": "invalid_request_error",
+            }
+        }
+
+        def fake_urlopen(request, timeout=None):
+            raise self._http_error(400, body)
+
+        with patch.dict(os.environ, {"MODEL_API_KEY": "test-key-not-a-secret"}), patch.object(
+            meta_client.urllib.request, "urlopen", fake_urlopen
+        ), self.assertLogs("stillpoint.guide", level="WARNING") as logs:
+            with self.assertRaises(MetaAPIError) as ctx:
+                chat_completion([
+                    {"role": "user", "content": "where do I upload my picture?"},
+                ])
+        self.assertEqual(ctx.exception.code, "bad_request")
+        self.assertEqual(ctx.exception.status, 400)
+        self.assertEqual(ctx.exception.upstream_type, "invalid_request_error")
+        self.assertEqual(ctx.exception.upstream_param, "input_text")
+        recorded = "\n".join(logs.output)
+        self.assertIn("status=400", recorded)
+        self.assertIn("param=input_text", recorded)
+        self.assertNotIn("upload my picture", recorded)
+        self.assertNotIn("test-key-not-a-secret", recorded)
+
+    def test_auth_and_rate_limit_and_timeout(self):
+        def reject(status, payload):
+            def fake_urlopen(request, timeout=None):
+                raise self._http_error(status, payload)
+            return fake_urlopen
+
+        with patch.dict(os.environ, {"MODEL_API_KEY": "test-key-not-a-secret"}):
+            with patch.object(meta_client.urllib.request, "urlopen", reject(401, {"error": {"type": "authentication_error", "code": "invalid_api_key"}})):
+                with self.assertRaises(MetaAPIError) as ctx:
+                    chat_completion([{"role": "user", "content": "hi"}])
+            self.assertEqual(ctx.exception.code, "auth")
+            self.assertEqual(ctx.exception.status, 401)
+
+            with patch.object(meta_client.urllib.request, "urlopen", reject(429, {"error": {"type": "rate_limit_error", "code": "rate_limit_exceeded"}})):
+                with self.assertRaises(MetaAPIError) as ctx:
+                    chat_completion([{"role": "user", "content": "hi"}])
+            self.assertEqual(ctx.exception.code, "rate_limited")
+            self.assertEqual(ctx.exception.status, 429)
+
+            def time_out(request, timeout=None):
+                raise TimeoutError("timed out")
+
+            with patch.object(meta_client.urllib.request, "urlopen", time_out):
+                with self.assertRaises(MetaAPIError) as ctx:
+                    chat_completion([{"role": "user", "content": "hi"}])
+            self.assertEqual(ctx.exception.code, "timeout")
+            self.assertEqual(ctx.exception.upstream_code, "timeout")
 
 
 if __name__ == "__main__":
