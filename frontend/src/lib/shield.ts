@@ -1,4 +1,4 @@
-/** Local image immunization. This changes pixel values. It is not a watermark and not a verified block of any generative model. */
+/** Experimental local image perturbation. It is not adversarially optimized or validated against a generative model. */
 
 export type ShieldPixels = { data: Uint8ClampedArray; width: number; height: number }
 
@@ -18,7 +18,7 @@ export const SHIELD_BASE = 3
 export const SHIELD_EDGE = 8
 export const SHIELD_BOUND = SHIELD_BASE + SHIELD_EDGE
 
-const METHOD = 'Edge-weighted high-frequency perturbation. Each color sample moves by at most 11 levels. Flat areas move by 3. Stronger edges move more, up to the bound. The pattern is a fixed spatial code, not a logo, text, or translucent cover.'
+const METHOD = 'Experimental deterministic edge-weighted high-frequency pixel perturbation, not an adversarially optimized defense. Each color sample moves by at most 11 levels. Flat areas move by 3; stronger edges move more, up to the bound. The pattern is not a logo, text, or translucent cover. Effectiveness has not been tested against image-editing models.'
 
 function pattern(x: number, y: number) {
   return (((x * 17) ^ (y * 31)) & 1) === (((x >> 1) ^ (y >> 1)) & 1) ? 1 : -1

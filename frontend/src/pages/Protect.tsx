@@ -1,10 +1,26 @@
 import { useEffect, useState } from 'react'
 import { Button, PageHeader, usePageTitle } from '../components/ui'
-import { decodeToPixels } from '../lib/redact'
 import { applyProtectionShield, type ShieldOutput } from '../lib/shield'
 import { photoFileError } from '../lib/photoCompare'
 
-const PROCESS_LIMIT = 4096
+const MAX_PROCESS_PIXELS = 24_000_000
+
+async function decodeNativePixels(file: File): Promise<{ data: Uint8ClampedArray; width: number; height: number }> {
+  const bitmap = await createImageBitmap(file)
+  try {
+    const { width, height } = bitmap
+    if (width < 2 || height < 2) throw new Error('The photograph is too small to protect.')
+    if (width * height > MAX_PROCESS_PIXELS) throw new Error('This photograph exceeds the 24 megapixel local processing limit. Choose a smaller image; Stillpoint does not downscale Shield output.')
+    const canvas = document.createElement('canvas')
+    canvas.width = width; canvas.height = height
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+    if (!context) throw new Error('This browser cannot read the photograph pixels.')
+    context.drawImage(bitmap, 0, 0, width, height)
+    const image = context.getImageData(0, 0, width, height)
+    canvas.width = 0; canvas.height = 0
+    return { data: image.data, width, height }
+  } finally { bitmap.close() }
+}
 
 async function encodePng(pixels: { data: Uint8ClampedArray; width: number; height: number }): Promise<Blob> {
   const canvas = document.createElement('canvas')
@@ -32,6 +48,7 @@ export function Protect() {
   const [slider, setSlider] = useState(50)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
 
   useEffect(() => () => {
     if (originalUrl) URL.revokeObjectURL(originalUrl)
@@ -54,28 +71,30 @@ export function Protect() {
     setScaled('')
     setSlider(50)
     setError('')
+    setSuccess('')
   }
 
   async function apply() {
     if (!file) return
     setBusy(true)
     setError('')
+    setSuccess('')
+    if (compareUrl) URL.revokeObjectURL(compareUrl)
+    if (protectedUrl) URL.revokeObjectURL(protectedUrl)
+    setCompareUrl(null); setProtectedUrl(null); setProtectedBlob(null); setShield(null)
     try {
-      const bitmap = await createImageBitmap(file)
-      const nativeWidth = bitmap.width
-      const nativeHeight = bitmap.height
-      bitmap.close()
-      const pixels = await decodeToPixels(file, PROCESS_LIMIT)
+      // Let React paint the processing state before doing CPU work.
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+      const pixels = await decodeNativePixels(file)
       const result = applyProtectionShield(pixels)
       const sourceBlob = await encodePng(pixels)
       const blob = await encodePng(result)
-      if (compareUrl) URL.revokeObjectURL(compareUrl)
-      if (protectedUrl) URL.revokeObjectURL(protectedUrl)
       setShield(result)
       setProtectedBlob(blob)
       setCompareUrl(URL.createObjectURL(sourceBlob))
       setProtectedUrl(URL.createObjectURL(blob))
-      setScaled(pixels.width === nativeWidth && pixels.height === nativeHeight ? '' : `Processed at ${pixels.width}×${pixels.height}. The original is ${nativeWidth}×${nativeHeight}, above the ${PROCESS_LIMIT}px limit.`)
+      setScaled('')
+      setSuccess(`Shielded PNG ready at the original ${pixels.width} × ${pixels.height} resolution. The source photograph was not modified.`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'The photograph could not be protected.')
     } finally {
@@ -88,7 +107,8 @@ export function Protect() {
     const url = URL.createObjectURL(protectedBlob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'stillpoint-protected.png'
+    const baseName = file?.name.replace(/\.[^.]+$/, '') || 'photograph'
+    link.download = `${baseName}_stillpoint_shielded.png`
     link.click()
     window.setTimeout(() => URL.revokeObjectURL(url), 30_000)
   }
@@ -100,8 +120,9 @@ export function Protect() {
         title="Protect an original photo"
         lede="Apply a local protection shield that changes the photograph itself. Scene comparison and feature mapping stay in Check and Proof."
       />
-      <p className="note">This shield is experimental. It cannot guarantee that an editing model will fail to manipulate the image. It is not a watermark, a cover, or a verified defense.</p>
+      <p className="note">This experimental pixel perturbation is not adversarially optimized and has not been tested against image-editing models. It cannot guarantee that an editing model will fail to manipulate the image. It is not a watermark, a cover, or a verified defense.</p>
       {error && <p className="error" role="alert">{error}</p>}
+      {success && <p className="note" role="status">{success}</p>}
       <label className="drop">
         <input
           type="file"
@@ -141,7 +162,7 @@ export function Protect() {
           <p className="num">Mean change {shield.meanAbs.toFixed(2)} levels · maximum {shield.maxAbs} of {shield.bound} · {shield.psnr.toFixed(1)} dB PSNR · {(shield.changedFraction * 100).toFixed(1)}% of color samples changed</p>
           <p className="muted">{shield.method}</p>
           <div className="actions">
-            <Button onClick={download} disabled={!protectedBlob}>Download Protected Image</Button>
+            <Button onClick={download} disabled={!protectedBlob}>Download Shielded Image</Button>
           </div>
           <section className="panel stack">
             <h2>Experimental effectiveness test</h2>
