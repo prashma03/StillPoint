@@ -108,7 +108,7 @@ export function Check() {
   return <div className="page check-workflow">
     <PageHeader eyebrow="Check" title="Check an Image" lede="Compare an original photograph with a suspected altered image, without unnecessarily exposing sensitive content." />
     <ol className="check-progress" aria-label="Comparison stages">{STEPS.map((label, i) => <li key={label} aria-current={session.step === i + 1 ? 'step' : undefined}><span>{i + 1}</span>{label}</li>)}</ol>
-    <p className="footer-note">No account needed. Images stay in this tab’s memory and are cleared on refresh or closing the tab. Redacted measurements may remain in this tab’s session storage. Use Delete images to clear this comparison.</p>
+    <p className="footer-note">No account needed. Images and comparison data are cleared whenever you fully reopen or refresh the app. Moving between pages keeps your current comparison available. Use Delete images to clear it immediately.</p>
     {discovery && <p className="note">TinEye candidate: {discovery.candidate.domain}. Add an authorized local copy. Search relevance is not geometric verification.</p>}
     {notice && <p role="status" className="note">{notice}</p>}{error && <p role="alert" className="error">{error}</p>}
     {session.step === 1 && <section className="stack"><h2>1. Upload Images</h2><div className="check-columns">{sides.map(side => <section className="panel stack" key={side}>
