@@ -19,7 +19,7 @@ describe('guide chat client', () => {
     const result = await sendGuideMessage([{ role: 'user', content: 'hello' }], 'protect')
     expect(result).toEqual({ ok: true, reply: 'Hi there', model: 'muse-wonder-1.0' })
     expect(fetchMock).toHaveBeenCalledOnce()
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe(`${AI_BASE}/api/chat`)
     expect(init.method).toBe('POST')
     const body = JSON.parse(init.body as string) as Record<string, unknown>
