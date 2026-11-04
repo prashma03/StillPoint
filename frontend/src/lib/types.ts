@@ -150,7 +150,43 @@ export type FaceGeometrySummary = {
   meanResidual: number | null
 }
 
+export type ModalGeometryMatch = {
+  source: { x: number; y: number }
+  suspect: { x: number; y: number }
+  inlier: boolean
+  reprojection_error_px: number | null
+  descriptor_distance: number
+}
+
+export type ModalGeometryEvidence = {
+  schema_version: 1
+  provider: 'modal'
+  method: string
+  image_dimensions: { source: { width: number; height: number }; suspect: { width: number; height: number } }
+  source_features: number
+  suspect_features: number
+  candidate_matches: number
+  verified_inliers: number
+  rejected_matches: number
+  inlier_fraction: number
+  alignment: {
+    model: 'homography' | 'none'
+    coordinate_space: string
+    matrix_source_to_suspect: number[] | null
+    ransac_threshold_px: number
+    mean_inlier_reprojection_error_px: number | null
+    median_inlier_reprojection_error_px: number | null
+    source_inlier_hull_coverage: number
+  }
+  uncertainty: { status: 'inconclusive' | 'caution' | 'measurable'; reasons: string[] }
+  matches: ModalGeometryMatch[]
+  extensions?: { scene_graph?: { provider: 'muse_wonder'; status: 'not_configured' | 'available' } }
+  limitations: string[]
+}
+
 export type CaseRecord = {
+  /** Routes interpretation only; facial geometry never changes a background verdict. */
+  analysisMethod?: 'background' | 'facial' | 'inconclusive'
   photoMethod?: string
   discovery?: { provider: 'TinEye'; domain: string; sourceLinks: string[]; providerRelevance: number | null }
   id: string
@@ -166,6 +202,7 @@ export type CaseRecord = {
   suspectHash: string | null
   detectedKeypoints?: { source: number; suspect: number } | null
   correspondence?: ImageCorrespondence | null
+  modalGeometry?: { status: 'completed'; evidence: ModalGeometryEvidence } | { status: 'fallback'; reason: string } | null
   faceGeometrySummary?: FaceGeometrySummary | null
   sourceFile?: { name: string; mimeType: string; sizeBytes: number } | null
   suspectFile?: { name: string; mimeType: string; sizeBytes: number } | null

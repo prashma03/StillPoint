@@ -6,6 +6,7 @@ import { Button, MetricList, PageHeader, usePageTitle, useReducedMotion } from '
 import { mappingLabel, metricRows, verdictExplanation } from '../lib/report'
 import { buildSample } from '../lib/sampleCase'
 import type { CaseRecord } from '../lib/types'
+import { AnalysisResults } from '../components/AnalysisResults'
 
 export function Results() {
   usePageTitle('Results')
@@ -31,6 +32,8 @@ export function Results() {
 }
 
 function ResultBody({ record, reduced, sampleQuery }: { record: CaseRecord; reduced: boolean; sampleQuery: string | null }) {
+  const { faceEvidence } = useCaseRecord()
+  if (record.analysisMethod === 'facial') return <AnalysisResults record={record} face={faceEvidence} />
   const tone = record.presentation.tone
   return (
     <div className={reduced ? 'stack' : 'stack reveal'}>

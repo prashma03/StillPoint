@@ -1,3 +1,4 @@
+export const FACE_LIMIT = 'Facial geometry similarity cannot establish identity, consent, manipulation, or whether two images share a common source. Pose, expression, lighting, occlusion, and model error affect measurements.'
 export type FaceLandmark = { name: string; x: number; y: number; z: number }
 export type FaceGeometryEvidence = {
   source: FaceLandmark[]
@@ -12,7 +13,8 @@ export type FaceGeometryEvidence = {
 }
 
 /** Runs only on an explicitly consented, already redacted local image. */
-export async function runFaceLandmarks(file: Blob, signal: AbortSignal): Promise<FaceLandmark[]> {
+export async function runFaceLandmarks(file: Blob, signal: AbortSignal, consent = false): Promise<FaceLandmark[]> {
+  if (!consent) throw new Error('Explicit consent is required before loading or running the facial landmark model.')
   signal.throwIfAborted()
   if (typeof Worker === 'undefined' || typeof createImageBitmap !== 'function') throw new Error('Local facial geometry is unavailable in this browser. No external service was contacted.')
   const bitmap = await createImageBitmap(file)

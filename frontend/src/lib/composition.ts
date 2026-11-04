@@ -26,7 +26,7 @@ async function faceBounds(data: Uint8ClampedArray, width: number, height: number
     const worker = new Worker(new URL(`${import.meta.env.BASE_URL}models/composition/detector.worker.js`, location.origin))
     const dispose = () => { clearTimeout(timer); signal.removeEventListener('abort', cancel); worker.terminate() }
     const cancel = () => { dispose(); reject(new DOMException('Composition scan cancelled.', 'AbortError')) }
-    const timer = setTimeout(() => { dispose(); reject(new Error('Composition scan timed out. Select a method manually.')) }, 15000)
+    const timer = setTimeout(() => { dispose(); reject(new Error('Composition scan timed out. Select a method manually.')) }, 30000)
     signal.addEventListener('abort', cancel, { once: true })
     worker.onerror = event => { event.preventDefault(); dispose(); reject(new Error('Composition detection could not load. Select a method manually.')) }
     worker.onmessage = (event: MessageEvent<{ boxes?: Mask[]; error?: string }>) => {
@@ -44,7 +44,7 @@ export async function inspectComposition(original: PhotoInput, suspicious: Photo
   const summaries: PhotoComposition[] = []
   for (const photo of [original, suspicious]) {
     if (!photo.file) throw new Error('Upload both original image files for composition inspection. Saved maps can still use background comparison.')
-    const pixels = await decodeToPixels(photo.file, 384)
+    const pixels = await decodeToPixels(photo.file, 256)
     signal.throwIfAborted()
     const boxes = await faceBounds(pixels.data, pixels.width, pixels.height, signal)
     signal.throwIfAborted()

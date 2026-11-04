@@ -35,10 +35,11 @@ self.onmessage = async (event: MessageEvent<{ bitmap: ImageBitmap; assets: strin
     stage = 'model loading'
     landmarker = await FaceLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: model, delegate: 'CPU' },
-      runningMode: 'IMAGE', numFaces: 1, outputFaceBlendshapes: false, outputFacialTransformationMatrixes: false,
+      runningMode: 'IMAGE', numFaces: 2, outputFaceBlendshapes: false, outputFacialTransformationMatrixes: false,
     })
     stage = 'landmark detection'
     const result = landmarker.detect(bitmap)
+    if (result.faceLandmarks.length > 1) throw new Error('Multiple faces were detected. Use Background Geometry or choose a single-face photograph; Stillpoint will not select an identity to compare.')
     const landmarks = result.faceLandmarks[0]
     if (!landmarks) throw new Error('No face was detected in this photograph.')
     const selected = anchors.map(([name, index]) => {

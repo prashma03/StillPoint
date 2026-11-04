@@ -5,7 +5,9 @@ import { EvidenceDiagram } from '../components/EvidenceDiagram'
 import { PhotoProof } from '../components/PhotoProof'
 import EvidenceConnections from '../components/proof/evidence/EvidenceConnections'
 import { ImageEvidence } from '../components/proof/evidence/ImageEvidence'
+import { AnalysisResults } from '../components/AnalysisResults'
 import { FacialGeometryProof } from '../components/FacialGeometryProof'
+import { ModalGeometryEvidenceView } from '../components/ModalGeometryEvidence'
 import { Button, Dialog, MetricList, PageHeader, usePageTitle, useReducedMotion } from '../components/ui'
 import { PROOF_LIMITS, PUNISHMENT_RULE, SCIENCE_LIMIT, mappingLabel, metricRows, reportText, verdictExplanation } from '../lib/report'
 import { buildSample } from '../lib/sampleCase'
@@ -90,7 +92,7 @@ export function Proof() {
         <button type="button" aria-pressed={mode === 'comparison'} onClick={() => setMode('comparison')}>My Image Comparison</button>
         <button type="button" aria-pressed={mode === 'demo'} onClick={() => setMode('demo')}>Concept Demo</button>
       </div>
-      {mode === 'comparison' ? <section className="proof-evidence proof-evidence-feature" aria-labelledby="evidence-connects-title">
+      {mode === 'comparison' && current?.analysisMethod === 'facial' ? <><AnalysisResults record={current} face={faceEvidence} proofLink={false} /><div className="actions"><Button to="/check" variant="secondary">Return to comparison</Button><Button variant="secondary" onClick={() => void copySummary()}>Copy summary</Button><Button disabled={exporting} onClick={() => void exportReport()}>Export redacted PDF</Button></div>{copied && <p role="status">{copied}</p>}</> : mode === 'comparison' ? <section className="proof-evidence proof-evidence-feature" aria-labelledby="evidence-connects-title">
         <div className="proof-evidence-heading">
           <div>
             <p className="eyebrow">My Image Comparison</p>
@@ -99,13 +101,15 @@ export function Proof() {
           <p className="muted">{current?.correspondence ? 'Cyan lines are homography inliers. Amber lines are unverified patch matches. Coral lines were rejected. Blue-gray points are detected corners that were not kept as pairs. This is a 2.5D presentation, not a reconstructed room.' : 'These points come from the reviewed scene map. Image-plane matching is shown when this comparison includes local photograph features.'}</p>
         </div>
         {current?.correspondence ? <ImageEvidence key={current.id} record={current} /> : current ? <><EvidenceDiagram source={current.sourceGraph} suspect={current.suspectGraph} residuals={current.result.residuals} showLines={lines} replayKey={replay} reduced={reduced} sourceCaption="Original scene map" suspectCaption="Compared scene map" responsive /><div className="proof-connection-legend"><span><i className="legend-cyan" />Aligned scene-map points</span><span><i className="legend-amber" />Compared points outside the alignment threshold</span></div>{current.sample && <p className="note">Illustrative sample scene graphs. These are not uploaded photographs.</p>}</> : discoveryScan ? <div className="panel stack"><h2>Local discovery scan</h2><p>{discoveryScan.fileName}</p><p>{discoveryScan.cornerCount} measured corners · {discoveryScan.edgeCount} high contrast regions.</p><p className="note">This is a visual-structure scan of one image. It did not compare a second image and does not determine whether the photograph is authentic, manipulated, safe, or derivative. {discoveryScan.mode === 'approximate-layout' ? 'The spatial view is an approximate layout; its depth is illustrative, not a verified reconstruction.' : 'No room was inferred. Depth in the spatial view is illustrative.'}</p><Button to="/check">Compare with another image</Button></div> : <div className="panel"><h2>No comparison is open</h2><p className="muted">Run a Check to inspect its measured correspondences. Stillpoint will not invent image feature points.</p><div className="actions"><Button to="/check">Start a check</Button><Button variant="secondary" onClick={() => setMode('demo')}>Open Concept Demo</Button></div></div>}
+        {current?.modalGeometry?.status === 'completed' && <ModalGeometryEvidenceView evidence={current.modalGeometry.evidence} />}
+        {current?.modalGeometry?.status === 'fallback' && <p className="note">Optional Modal verification unavailable: {current.modalGeometry.reason} The on-device result remains unchanged.</p>}
       </section> : <section className="proof-evidence proof-evidence-feature" aria-labelledby="evidence-connects-title">
         <div className="proof-evidence-heading"><div><p className="eyebrow">Concept Demo</p><h2 id="evidence-connects-title">Spatial correspondence, made visible.</h2></div><p className="muted">Conceptual visualization — simulated data, not reconstructed from uploaded photographs.</p></div>
         <EvidenceConnections />
       </section>}
-      {mode === 'comparison' && current && faceEvidence && !current.sample && <FacialGeometryProof key={current.id} evidence={faceEvidence} caseId={current.id} blind={current.blind} />}
+      {mode === 'comparison' && current && current.analysisMethod !== 'facial' && faceEvidence && !current.sample && <FacialGeometryProof key={current.id} evidence={faceEvidence} caseId={current.id} blind={current.blind} />}
       {mode === 'comparison' && current?.photoMethod?.includes('A separate local facial landmark geometry comparison') && !faceEvidence && <p className="note">Temporary facial landmark coordinates were cleared when the active analysis session ended. Only non-coordinate report metadata remains.</p>}
-      <div className={`proof-layout${current ? '' : ' proof-empty'}`}>
+      {current?.analysisMethod !== 'facial' && <div className={`proof-layout${current ? '' : ' proof-empty'}`}>
         <section className="proof-main">
           <h2 className="proof-section-title">Your comparison</h2>
           {current && <PhotoProof key={current.id} record={current} lines={lines} replay={replay} />}
@@ -159,7 +163,7 @@ export function Proof() {
             </Dialog>
           </>}
         </aside>
-      </div>
+      </div>}
     </div>
   )
 }

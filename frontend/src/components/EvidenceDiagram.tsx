@@ -37,6 +37,7 @@ export function EvidenceDiagram({
   const [selected, setSelected] = useState<string | null>(null)
   const [stacked, setStacked] = useState(() => responsive && typeof window !== 'undefined' && window.matchMedia('(max-width: 600px)').matches)
   const residualByName = new Map(residuals.map((item) => [item.name, item]))
+  const focusedName = active ?? selected ?? residuals[0]?.name ?? null
   useEffect(() => {
     if (!responsive) return
     const query = window.matchMedia('(max-width: 600px)')
@@ -79,7 +80,7 @@ export function EvidenceDiagram({
             const y1 = mapY(left.y + left.height / 2, sourceTop)
             const x2 = mapCoord(right.x + right.width / 2, rightOrigin, diagramSize)
             const y2 = mapY(right.y + right.height / 2, suspectTop)
-            const focused = active ?? selected
+            const focused = focusedName
             const dim = focused && focused !== item.name
             return (
               <line
@@ -106,7 +107,7 @@ export function EvidenceDiagram({
           const left = source.room_objects.find((obj) => obj.name === item.name)
           const right = suspect.room_objects.find((obj) => obj.name === item.name)
           if (!left || !right) return null
-          const focused = active ?? selected
+          const focused = focusedName
           const dim = focused && focused !== item.name
           return (
             <g key={item.name} opacity={dim ? 0.28 : 1}>
@@ -133,11 +134,11 @@ export function EvidenceDiagram({
         })}
       </svg>
       <p className="diagram-readout">
-        {(active ?? selected) && residualByName.get((active ?? selected)!)
-          ? `${active ?? selected}: residual ${residualByName.get((active ?? selected)!)!.distance.toFixed(2)}. ${
-              residualByName.get((active ?? selected)!)!.aligned ? 'Aligned within threshold' : 'Outside the alignment threshold'
+        {focusedName && residualByName.get(focusedName)
+          ? `${focusedName}: residual ${residualByName.get(focusedName)!.distance.toFixed(2)}. ${
+              residualByName.get(focusedName)!.aligned ? 'Aligned within threshold' : 'Outside the alignment threshold'
             }.`
-          : 'Select a reference point to read its correspondence.'}
+          : 'No paired reference points are available in this scene map.'}
       </p>
     </div>
   )

@@ -39,6 +39,7 @@ from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
 from backend import discover
+from backend import modal_client
 
 from backend.align import compare_graphs
 from backend.meta_client import (
@@ -292,6 +293,11 @@ class Handler(BaseHTTPRequestHandler):
                 "max_image_bytes": MAX_IMAGE_BYTES,
                 "segmentation_format": "pixel_masks_v1",
                 "segmentation_decoder_ready": image_segmentation_format is not None,
+                "modal_verification": {
+                    "configured": modal_client.configuration() is not None,
+                    "provider": "Modal",
+                    "endpoint_origin": public_provider_origin(os.environ.get("MODAL_VERIFY_URL", "")),
+                },
             },
         )
 
@@ -319,8 +325,35 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_segment()
         elif self.path == "/api/chat":
             self._handle_chat()
+        elif self.path == "/api/modal/verify":
+            self._handle_modal_verify()
         else:
             self._send(404, {"error": "Not found"})
+
+    def _handle_modal_verify(self):
+        if self.headers.get("Origin") not in ALLOWED_ORIGINS:
+            self._send(403, {"error": "origin_denied"})
+            return
+        if self.headers.get_content_type() != "application/json":
+            self._send(415, {"error": "unsupported_content_type"})
+            return
+        if _analysis_rate_limited(self.client_address[0]):
+            self._send(429, {"error": "rate_limited", "message": "Too many verification requests. Wait a minute and try again."})
+            return
+        self.connection.settimeout(140)
+        body = self._read_json(20_000_000)
+        if body is None:
+            self._send(413, {"error": "request_too_large", "message": "The redacted image pair is empty or too large."})
+            return
+        if body is False:
+            self._send(400, {"error": "invalid_request", "message": "Expected a JSON redacted image pair."})
+            return
+        try:
+            self._send(200, {"evidence": modal_client.verify(body)})
+        except modal_client.ModalClientError as exc:
+            self._send(exc.status, {"error": exc.code, "message": str(exc)})
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # A cancelled browser request is not retained.
 
     def _handle_discover(self):
         # JSON-only local browser calls; reject cross-origin submission.
@@ -588,6 +621,8 @@ class Handler(BaseHTTPRequestHandler):
 # variables always win over the file.
 DOTENV_KEYS = (
     "TINEYE_API_KEY",
+    "MODAL_VERIFY_URL",
+    "MODAL_PROXY_TOKEN",
     "MODEL_API_KEY",
     "META_BASE_URL",
     "SCENE_MODEL",

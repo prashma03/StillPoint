@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
 import type { CaseRecord, RoomObject } from './types'
+import { reportText } from './report'
 
 export type EvidencePdfOptions = {
   thumbnails?: { original?: Blob | null; suspicious?: Blob | null }
@@ -111,6 +112,15 @@ export async function buildEvidencePdf(record: CaseRecord, options: EvidencePdfO
   pdf.setCreator('Stillpoint on-device report generator')
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
+  if (record.analysisMethod === 'facial') {
+    // Aggregate-only export: never project facial coordinates into a PDF.
+    const page = pdf.addPage([W, H])
+    header(page, regular, bold, record.id)
+    page.drawText('Facial Geometry Measurements', { x: M, y: H - 88, size: 20, font: bold, color: ink })
+    paragraph(page, reportText(record), M, H - 116, W - 2 * M, regular, 9)
+    const bytes = await pdf.save()
+    return new Blob([new Uint8Array(bytes).buffer], { type: 'application/pdf' })
+  }
   const pageOne = pdf.addPage([W, H])
   header(pageOne, regular, bold, record.id)
   let y = H - 84
@@ -183,6 +193,13 @@ export async function buildEvidencePdf(record: CaseRecord, options: EvidencePdfO
     const fit = record.correspondence
     y = paragraph(pageTwo, `Image-plane homography: ${fit.verified} verified and ${fit.rejected} rejected of ${fit.candidates} patch candidates. ${fit.sourceFeatures} and ${fit.suspectFeatures} Harris corners were retained. Mean verified reprojection ${fit.meanVerifiedErrorPx == null ? 'was not available' : `was ${fit.meanVerifiedErrorPx.toFixed(2)} px`} at a ${fit.thresholdPx} px threshold. This is not a 3D reconstruction or a manipulation percentage.`, M, y, W - 2 * M, regular, 8.2)
   }
+  if (record.modalGeometry?.status === 'completed') {
+    const modal = record.modalGeometry.evidence
+    y = paragraph(pageTwo, `Supplemental remote Modal geometry: ${modal.verified_inliers} RANSAC inliers from ${modal.candidate_matches} measured candidates; uncertainty ${modal.uncertainty.status}${modal.uncertainty.reasons.length ? ` (${modal.uncertainty.reasons.join(', ')})` : ''}. Model ${modal.alignment.model}; mean reprojection ${modal.alignment.mean_inlier_reprojection_error_px == null ? 'not available' : `${modal.alignment.mean_inlier_reprojection_error_px.toFixed(2)} px`}; coverage ${(modal.alignment.source_inlier_hull_coverage * 100).toFixed(2)}%. This supplemental measurement did not change the on-device verdict. Coordinates below refer to the respective redacted images and are normalized 0–1.`, M, y, W - 2 * M, regular, 8.2)
+    y = paragraph(pageTwo, `${modal.matches.length} actual feature coordinate pairs are included in the report appendix. Coordinates are normalized in the redacted input images.`, M, y, W - 2 * M, regular, 8.2)
+  } else if (record.modalGeometry?.status === 'fallback') {
+    y = paragraph(pageTwo, `Supplemental Modal verification unavailable: ${record.modalGeometry.reason}. The on-device result was retained.`, M, y, W - 2 * M, regular, 8.2)
+  }
   y = paragraph(pageTwo, 'The comparison excludes person-named objects and any reviewed feature coordinates falling within confirmed privacy covers, then compares remaining named point centers. Each residual is measured against the threshold shown on page 1. This is an experimental visual correspondence workflow, not an image-authenticity examination.', M, y, W - 2 * M, regular, 8.5)
   y -= 3
   const columnWidth = (W - 2 * M - 12) / 2
@@ -193,7 +210,7 @@ export async function buildEvidencePdf(record: CaseRecord, options: EvidencePdfO
   y = drawMetadataBlock(pageTwo, 'Suspected photograph', metadataRows[1], M + columnWidth + 12, metadataTop, columnWidth, metadataHeight, regular, bold)
   y -= 1
   y = section(pageTwo, 'Privacy processing', M, y, bold)
-  const privacy = `Analysis engine: ${record.engine === 'on-device' ? 'on-device in this browser' : clean(record.engine)}. Uploaded image files are held in browser memory for this workflow and are not sent to the comparison engine. The analysis used background feature maps after privacy-mask exclusion. Mask applied to at least one image: ${record.maskApplied ? 'Yes' : 'No'}. The PDF includes no photograph pixels unless masked thumbnails were explicitly selected; only previews with recorded masking are eligible. ${record.pythonNote ? 'A Python cross-check note is recorded; Stillpoint sends feature-map coordinates to a loopback local backend for that option, not image pixels.' : 'No Python cross-check was recorded.'} ${record.discovery ? 'A reverse-image search candidate was also recorded in this case; that separate search may have disclosed its query to its provider.' : ''}`
+  const privacy = `Analysis engine: ${record.engine === 'on-device' ? 'on-device in this browser' : clean(record.engine)}. Uploaded image files are held in browser memory. The background feature-map comparison runs after privacy-mask exclusion. Mask applied to at least one image: ${record.maskApplied ? 'Yes' : 'No'}. ${record.modalGeometry?.status === 'completed' ? 'By separate explicit opt-in, downscaled metadata-stripped JPEGs with opaque reviewed masks were sent to the configured Modal service; unmasked pixels can remain sensitive. Modal does not change the local verdict.' : 'No Modal image upload was recorded.'} The PDF includes no photograph pixels unless masked thumbnails were explicitly selected; only previews with recorded masking are eligible. ${record.pythonNote ? 'A Python cross-check note is recorded; Stillpoint sends feature-map coordinates to a loopback local backend for that option, not image pixels.' : 'No Python cross-check was recorded.'} ${record.discovery ? 'A reverse-image search candidate was also recorded in this case; that separate search may have disclosed its query to its provider.' : ''}`
   y = paragraph(pageTwo, privacy, M, y, W - 2 * M, regular, 8.2)
   y -= 2
   y = section(pageTwo, 'Limitations and uncertainty', M, y, bold)
@@ -207,6 +224,22 @@ export async function buildEvidencePdf(record: CaseRecord, options: EvidencePdfO
   for (const item of limits) y = paragraph(pageTwo, `- ${item}`, M, y, W - 2 * M, regular, 8)
   const footer = 'Generated locally by Stillpoint. No legal certification or image-authenticity conclusion is made.'
   pageTwo.drawText(clean(footer), { x: M, y: 50, size: 7.5, font: regular, color: muted })
+  if (record.modalGeometry?.status === 'completed') {
+    const rows = record.modalGeometry.evidence.matches
+    const perPage = 52
+    for (let offset = 0; offset < rows.length; offset += perPage) {
+      const page = pdf.addPage([W, H]); header(page, regular, bold, record.id)
+      const end = Math.min(offset + perPage, rows.length)
+      page.drawText(`Modal correspondences (${offset + 1}–${end} of ${rows.length})`, { x: M, y: H - 82, size: 16, font: bold, color: ink })
+      page.drawText('Actual coordinates in the redacted analysis images; x and y are normalized 0–1.', { x: M, y: H - 100, size: 8, font: regular, color: muted })
+      let rowY = H - 122
+      for (let index = offset; index < end; index++) {
+        const match = rows[index]
+        const lineText = `${index + 1}. src (${match.source.x.toFixed(5)}, ${match.source.y.toFixed(5)}) -> cmp (${match.suspect.x.toFixed(5)}, ${match.suspect.y.toFixed(5)}) | ${match.inlier ? 'inlier' : 'rejected'} | reproj ${match.reprojection_error_px == null ? 'n/a' : `${match.reprojection_error_px.toFixed(3)} px`}`
+        page.drawText(clean(lineText), { x: M, y: rowY, size: 6.5, font: regular, color: ink }); rowY -= 11
+      }
+    }
+  }
   const bytes = await pdf.save()
   const blobBytes = new Uint8Array(bytes.byteLength)
   blobBytes.set(bytes)
