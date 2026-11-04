@@ -20,13 +20,13 @@ export function Settings() {
     sceneStore().clear()
     setScenes(0)
     setOpen(false)
-    setMessage('Saved scene graphs were removed from this browser. Photographs were not stored, so none were deleted.')
+    setMessage('Saved scene graphs were removed from this tab session. Photographs were not stored, so none were deleted.')
   }
 
   function clearNotes() {
     reviewStore().clear()
     setNotes(0)
-    setMessage('Private notes were removed from this browser.')
+    setMessage('Private notes were removed from this tab session.')
   }
 
   return (
@@ -34,7 +34,7 @@ export function Settings() {
       <PageHeader
         eyebrow="Settings"
         title="Privacy on this device"
-        lede="Comparisons run in this browser by default. Optional AI mapping sends image data to the configured model provider only after separate consent."
+        lede="Comparisons run in this browser. Guest scene graphs, notes, drafts, and results are kept in this tab session; optional AI mapping sends image data to the configured model provider only after separate consent."
       />
       <div className="stack">
         <label className="checkline">
@@ -81,7 +81,7 @@ export function Settings() {
         </div>
       </div>
       <Dialog open={open} title="Delete saved scene graphs?" confirmLabel="Delete" onConfirm={clearScenes} onClose={() => setOpen(false)}>
-        <p className="muted">This removes scene graphs from this browser. It cannot delete a photograph Stillpoint never stored.</p>
+          <p className="muted">This removes scene graphs from this tab session. It cannot delete a photograph Stillpoint never stored.</p>
       </Dialog>
     </div>
   )
