@@ -1288,3 +1288,39 @@ html { scroll-snap-type: none; scroll-behavior: smooth; }
 @keyframes trust-detail-in { from { opacity:0; transform:translateY(9px) scale(.99); } to { opacity:1; transform:translateY(0) scale(1); } }
 @media(max-width:760px) { .trust-redesign { min-height:auto; padding-top:16px; gap:14px; } .trust-hero { min-height:125px; } .trust-hero-mark { width:74px; transform:scale(.7); transform-origin:center right; } .trust-dashboard-grid { grid-template-columns:1fr; gap:10px; } .trust-dashboard-card { min-height:104px; padding:16px; } .trust-dashboard-footer { margin-top:8px; } .trust-detail-heading { align-items:flex-start; flex-direction:column; } .trust-redesign .trust-evidence-grid,.trust-limit-list { grid-template-columns:1fr; } .trust-detail-bar { align-items:flex-start; flex-direction:column; } }
 @media(prefers-reduced-motion:reduce) { .trust-hero-mark i,.trust-detail-view { animation:none; } .trust-dashboard-card,.trust-card-arrow { transition:none; } }
+
+/* Adaptive image analysis and local facial geometry */
+.adaptive-analysis { border-color: rgba(111, 213, 225, .26); background: linear-gradient(145deg, rgba(22, 40, 53, .95), rgba(17, 29, 40, .96)); }
+.adaptive-analysis > h3 { margin: 0; }
+.adaptive-mode-grid { align-items: stretch; }
+.adaptive-mode-grid > article, .face-consent-panel { min-width: 0; padding: 18px; border: 1px solid rgba(160, 190, 205, .16); border-radius: 15px; background: rgba(10, 20, 29, .42); }
+.adaptive-mode-grid h4, .face-consent-panel h4 { margin: 12px 0 7px; color: #edf6fb; font-size: 1.05rem; }
+.adaptive-mode-grid p, .face-consent-panel p { margin: 7px 0; line-height: 1.6; }
+.face-consent-panel { display: grid; gap: 8px; border-color: rgba(89, 203, 217, .32); }
+.face-consent-panel h4 { margin: 0; }
+.face-consent-panel .checkline { align-items: flex-start; padding: 12px; border-radius: 12px; background: rgba(96, 197, 210, .08); }
+.face-consent-panel .checkline input { margin-top: 4px; flex: 0 0 auto; }
+.face-consent-panel .actions { flex-wrap: wrap; }
+.facial-proof { overflow: hidden; border-color: rgba(111, 213, 225, .32); }
+.facial-proof-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.facial-proof-heading h2 { margin: 5px 0 0; }
+.facial-proof-heading .checkline { flex: 0 0 auto; }
+.facial-photo-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+.facial-photo-card { min-width: 0; padding: 12px; border: 1px solid rgba(160, 190, 205, .17); border-radius: 14px; background: rgba(9, 18, 27, .42); }
+.facial-photo-card h3 { margin: 0 0 10px; font-size: .95rem; }
+.facial-photo-frame { position: relative; overflow: hidden; display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3; border-radius: 10px; background: #0a121b; }
+.facial-photo-frame img, .facial-photo-frame svg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.facial-photo-frame svg { overflow: visible; pointer-events: none; }
+.facial-photo-frame svg line { stroke: rgba(110, 235, 248, .78); stroke-width: .0035; vector-effect: non-scaling-stroke; }
+.facial-photo-frame svg circle { stroke: #07121a; stroke-width: .0018; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 3px rgba(91, 236, 255, .85)); }
+.facial-concealed { color: #becbd4; font-size: .9rem; }
+.facial-reveal { margin-top: 14px; padding: 12px; border: 1px solid rgba(236, 191, 110, .38); border-radius: 12px; background: rgba(164, 107, 30, .1); }
+.facial-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
+.facial-metrics > div { min-width: 0; padding: 12px; border-radius: 11px; background: rgba(95, 183, 200, .08); }
+.facial-metrics dt { color: #aabac7; font-size: .76rem; }
+.facial-metrics dd { margin: 6px 0 0; color: #f1f6f9; font-weight: 650; overflow-wrap: anywhere; }
+.facial-limitations { padding: 12px 14px; border: 1px solid rgba(160, 190, 205, .17); border-radius: 11px; }
+.facial-limitations summary { cursor: pointer; color: #c5d6df; }
+.facial-limitations p { margin-bottom: 0; line-height: 1.55; }
+@media (max-width: 720px) { .facial-photo-pair { grid-template-columns: 1fr; } .facial-photo-frame { aspect-ratio: 4 / 3; } .facial-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .facial-proof-heading { align-items: flex-start; flex-direction: column; } }
+@media (prefers-reduced-motion: reduce) { .adaptive-analysis *, .facial-proof * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }

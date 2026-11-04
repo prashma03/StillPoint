@@ -141,6 +141,15 @@ export type ImageCorrespondence = {
   limitation: string
 }
 
+/** Aggregate, non-coordinate summary of an explicitly consented facial geometry comparison. */
+export type FaceGeometrySummary = {
+  sourceLandmarks: number
+  suspectLandmarks: number
+  alignedLandmarks: number
+  alignmentThreshold: number
+  meanResidual: number | null
+}
+
 export type CaseRecord = {
   photoMethod?: string
   discovery?: { provider: 'TinEye'; domain: string; sourceLinks: string[]; providerRelevance: number | null }
@@ -157,6 +166,7 @@ export type CaseRecord = {
   suspectHash: string | null
   detectedKeypoints?: { source: number; suspect: number } | null
   correspondence?: ImageCorrespondence | null
+  faceGeometrySummary?: FaceGeometrySummary | null
   sourceFile?: { name: string; mimeType: string; sizeBytes: number } | null
   suspectFile?: { name: string; mimeType: string; sizeBytes: number } | null
   sourceMaskApplied?: boolean

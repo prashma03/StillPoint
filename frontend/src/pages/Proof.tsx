@@ -5,6 +5,7 @@ import { EvidenceDiagram } from '../components/EvidenceDiagram'
 import { PhotoProof } from '../components/PhotoProof'
 import EvidenceConnections from '../components/proof/evidence/EvidenceConnections'
 import { ImageEvidence } from '../components/proof/evidence/ImageEvidence'
+import { FacialGeometryProof } from '../components/FacialGeometryProof'
 import { Button, Dialog, MetricList, PageHeader, usePageTitle, useReducedMotion } from '../components/ui'
 import { PROOF_LIMITS, PUNISHMENT_RULE, SCIENCE_LIMIT, mappingLabel, metricRows, reportText, verdictExplanation } from '../lib/report'
 import { buildSample } from '../lib/sampleCase'
@@ -16,7 +17,7 @@ export function Proof() {
   const [params] = useSearchParams()
   const location = useLocation()
   const discoveryScan = (location.state as { discoveryScan?: { fileName: string; cornerCount: number; edgeCount: number; mode?: 'approximate-layout' | 'feature-map' } } | null)?.discoveryScan
-  const { record } = useCaseRecord()
+  const { record, faceEvidence } = useCaseRecord()
   const sample = params.get('sample')
   const caseId = params.get('case')
   const sampleRecord = useMemo(
@@ -102,6 +103,8 @@ export function Proof() {
         <div className="proof-evidence-heading"><div><p className="eyebrow">Concept Demo</p><h2 id="evidence-connects-title">Spatial correspondence, made visible.</h2></div><p className="muted">Conceptual visualization — simulated data, not reconstructed from uploaded photographs.</p></div>
         <EvidenceConnections />
       </section>}
+      {mode === 'comparison' && current && faceEvidence && !current.sample && <FacialGeometryProof key={current.id} evidence={faceEvidence} caseId={current.id} blind={current.blind} />}
+      {mode === 'comparison' && current?.photoMethod?.includes('A separate local facial landmark geometry comparison') && !faceEvidence && <p className="note">Temporary facial landmark coordinates were cleared when the active analysis session ended. Only non-coordinate report metadata remains.</p>}
       <div className={`proof-layout${current ? '' : ' proof-empty'}`}>
         <section className="proof-main">
           <h2 className="proof-section-title">Your comparison</h2>

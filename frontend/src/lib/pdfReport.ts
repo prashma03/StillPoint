@@ -175,6 +175,10 @@ export async function buildEvidencePdf(record: CaseRecord, options: EvidencePdfO
   y -= 26
   y = section(pageTwo, 'Comparison methodology', M, y, bold)
   y = paragraph(pageTwo, record.photoMethod || 'Reviewed scene-map coordinate comparison. The image-level detection method was not recorded for this case.', M, y, W - 2 * M, regular, 8.5)
+  if (record.faceGeometrySummary) {
+    const face = record.faceGeometrySummary
+    y = paragraph(pageTwo, `Consent-based facial geometry (aggregate only): ${face.sourceLandmarks} original and ${face.suspectLandmarks} suspected reference landmarks; ${face.alignedLandmarks} within ${face.alignmentThreshold.toFixed(2)} inter-eye spacings; mean normalized residual ${face.meanResidual == null ? 'not available' : face.meanResidual.toFixed(3)} inter-eye spacings. Raw facial landmark coordinates are not included. This does not establish identity or shared image origin.`, M, y, W - 2 * M, regular, 8.2)
+  }
   if (record.correspondence) {
     const fit = record.correspondence
     y = paragraph(pageTwo, `Image-plane homography: ${fit.verified} verified and ${fit.rejected} rejected of ${fit.candidates} patch candidates. ${fit.sourceFeatures} and ${fit.suspectFeatures} Harris corners were retained. Mean verified reprojection ${fit.meanVerifiedErrorPx == null ? 'was not available' : `was ${fit.meanVerifiedErrorPx.toFixed(2)} px`} at a ${fit.thresholdPx} px threshold. This is not a 3D reconstruction or a manipulation percentage.`, M, y, W - 2 * M, regular, 8.2)

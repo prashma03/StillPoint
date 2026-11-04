@@ -55,6 +55,13 @@ export function reportText(record: CaseRecord): string {
     `Stillpoint version: ${STILLPOINT_VERSION}`,
     `Method: ${METHOD_SUMMARY}`,
     ...(record.photoMethod ? [`Photo preparation: ${record.photoMethod}`] : []),
+    ...(record.faceGeometrySummary ? [
+      'Consent-based facial geometry (aggregate only; not identity verification):',
+      `Reference landmarks: ${record.faceGeometrySummary.sourceLandmarks} original / ${record.faceGeometrySummary.suspectLandmarks} suspected.`,
+      `Landmarks within ${record.faceGeometrySummary.alignmentThreshold.toFixed(2)} inter-eye spacings: ${record.faceGeometrySummary.alignedLandmarks}.`,
+      `Mean normalized landmark residual: ${record.faceGeometrySummary.meanResidual == null ? 'not available' : record.faceGeometrySummary.meanResidual.toFixed(3)} inter-eye spacings.`,
+      'Raw facial landmark coordinates are not included in this report. Facial-shape geometry does not establish identity or shared image origin.',
+    ] : []),
     'Provenance: scene-graph proposals may be manual, local edge-region suggestions, or optional AI-assisted mapping. AI-assisted mapping sends the consented redacted image to the configured external model provider; see the mapping fields below.',
     '',
     `Source: ${record.sourceLabel}`,

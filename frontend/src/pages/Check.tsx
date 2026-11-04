@@ -9,6 +9,7 @@ import { clearCheckSession, clearProofMedia, emptyCheck, emptyPhoto, getCheckSes
 import { backgroundOnly, buildCorrespondence, matchPhotographs, photoFileError } from '../lib/photoCompare'
 import { decodeToPixels, redactImage } from '../lib/redact'
 import { segmentLocally, LOCAL_MASK_MODEL } from '../lib/localSegmentation'
+import { compareFaceLandmarks, runFaceLandmarks, type FaceGeometryEvidence } from '../lib/facialGeometry'
 import { sha256 } from '../lib/hash'
 import { sceneStore, settingsStore } from '../lib/storage'
 import { verifyWithPython } from '../lib/engine'
@@ -24,7 +25,7 @@ const hasAppliedMask = (photo: PhotoInput) => photo.masks.some(mask => [mask.x, 
 export function Check() {
   usePageTitle('Check an Image')
   const [params] = useSearchParams()
-  const { record, setRecord } = useCaseRecord()
+  const { record, setRecord, setFaceEvidence } = useCaseRecord()
   const [session, setSession] = useState<CheckSession>(() => {
     const saved = getCheckSession(), id = params.get('scene')
     const scene = id ? sceneStore().get(id) : null
@@ -36,15 +37,18 @@ export function Check() {
   const [advanced, setAdvanced] = useState(false)
   const [includeMaskedThumbnails, setIncludeMaskedThumbnails] = useState(false)
   const [closeDialog, setCloseDialog] = useState(false)
+  const [faceConsent, setFaceConsent] = useState(false), [faceBusy, setFaceBusy] = useState(false)
+  const [facePreview, setFacePreview] = useState<FaceGeometryEvidence | null>(null)
+  const faceRequest = useRef<AbortController | null>(null)
   const sequence = useRef(0), alive = useRef(true)
-  useEffect(() => { alive.current = true; return () => { alive.current = false; sequence.current++ } }, [])
+  useEffect(() => { alive.current = true; return () => { alive.current = false; sequence.current++; faceRequest.current?.abort() } }, [])
   useEffect(() => saveCheckSession(session), [session])
   const discovery = params.get('discover') ? takeDiscoveryHandoff() : null
   const current = session.caseId === record?.id ? record : null
   const hasOriginal = !!session.original.file || !!session.original.graph.room_objects.length
   const hasSuspect = !!session.suspicious.file
   function update(next: CheckSession) { saveCheckSession(next); setSession(next) }
-  function change(side: Side, value: PhotoInput) { const sameFile = value.file === session[side].file && value.hash === session[side].hash && value.label === session[side].label; clearProofMedia(); setRecord(null); update({ ...session, [side]: value, reviewed: false, caseId: null, detectedKeypoints: sameFile ? session.detectedKeypoints : null, localDetection: sameFile ? session.localDetection : null }) }
+  function change(side: Side, value: PhotoInput) { const sameFile = value.file === session[side].file && value.hash === session[side].hash && value.label === session[side].label; clearProofMedia(); setRecord(null); setFacePreview(null); setFaceConsent(false); update({ ...session, [side]: value, reviewed: false, caseId: null, detectedKeypoints: sameFile ? session.detectedKeypoints : null, localDetection: sameFile ? session.localDetection : null }) }
   function go(step: number) { setError(''); update({ ...session, step }); window.scrollTo({ top: 0, behavior: 'instant' }) }
   async function upload(side: Side, file: File) {
     const token = ++sequence.current
@@ -55,7 +59,7 @@ export function Check() {
       await decodeToPixels(file, 256)
       const hash = await sha256(file)
       if (!alive.current || token !== sequence.current) return
-      clearProofMedia(); setRecord(null)
+      clearProofMedia(); setRecord(null); setFacePreview(null); setFaceConsent(false)
       const other = side === 'original' ? 'suspicious' : 'original'
       update({ ...session, [side]: { ...emptyPhoto(), file, hash, label: file.name }, [other]: { ...session[other], graph: session[other].file ? { room_objects: [] } : session[other].graph }, reviewed: false, caseId: null })
       setNotice(`${title(side)} ready. Nothing was uploaded to a server.`)
@@ -63,6 +67,7 @@ export function Check() {
     finally { if (alive.current && token === sequence.current) setBusy(false) }
   }
   async function findFeatures(input: CheckSession = session) {
+    setFacePreview(null); setFaceConsent(false); setFaceEvidence(null)
     if (!input.original.confirmed || !input.suspicious.confirmed) { setError('Confirm the original photograph’s privacy review first.'); return }
     if (!input.original.file || !input.suspicious.file) { setNotice('The saved original contains positions, not pixels. Mark corresponding details by hand, or upload the original photo to use local suggestions.'); go(3); return }
     const token = ++sequence.current
@@ -77,6 +82,28 @@ export function Check() {
       window.scrollTo({ top: 0, behavior: 'instant' })
     } catch (err) { if (alive.current && token === sequence.current) { setError(err instanceof Error ? err.message : 'Feature search failed.'); update({ ...input, step: 3 }) } }
     finally { if (alive.current && token === sequence.current) setBusy(false) }
+  }
+  async function analyzeFaces() {
+    if (!faceConsent) { setError('Explicit consent is required before facial landmark geometry is processed.'); return }
+    if (!session.original.file || !session.suspicious.file) { setError('Both original photo files are required for local facial geometry.'); return }
+    const token = ++sequence.current, controller = new AbortController()
+    faceRequest.current?.abort(); faceRequest.current = controller
+    setFaceBusy(true); setError(''); setNotice('Preparing privacy-covered images for consented on-device facial geometry…')
+    try {
+      const prepared = await Promise.all(sides.map(async side => {
+        const photo = session[side]
+        if (!photo.file) throw new Error('Both original photo files are required.')
+        const image = await redactImage(photo.file, photo.masks, photo.pixelMask)
+        return (await fetch(image.dataUrl)).blob() // Local data URL conversion only.
+      }))
+      const [source, suspect] = await Promise.all(prepared.map(file => runFaceLandmarks(file, controller.signal)))
+      if (!alive.current || token !== sequence.current) return
+      const comparison = compareFaceLandmarks(source, suspect)
+      setFacePreview(comparison); setFaceConsent(false)
+      setNotice(`Local facial geometry complete: ${comparison.alignedLandmarks} of ${comparison.sourceLandmarkCount} reference landmarks fall within ${comparison.alignmentThreshold.toFixed(2)} inter-eye spacings after 3D-relative normalization. This is not identity verification.`)
+    } catch (err) {
+      if (alive.current && token === sequence.current) setError(err instanceof Error ? err.message : 'Local facial landmark analysis failed.')
+    } finally { if (alive.current && token === sequence.current) { setFaceBusy(false); faceRequest.current = null } }
   }
   async function continuePrivacy() {
     if (!session.original.confirmed) { setError('Review and confirm the original photograph’s privacy setup first.'); return }
@@ -120,16 +147,23 @@ export function Check() {
       }
       if (!alive.current || token !== sequence.current) return
       outcome.record.correspondence = buildCorrespondence(source, suspect, session.localDetection ?? null)
-      outcome.record.photoMethod = session.localDetection
+      outcome.record.photoMethod = `${session.localDetection
         ? 'On-device Harris corners and normalized patch descriptors, then a Hartley-normalized homography checked with deterministic RANSAC. Reviewed edits are included and masked regions are excluded before detection. The homography is a 2D image-plane map, not a 3D room reconstruction or an authenticity score.'
-        : 'Reviewed scene-map coordinates only. Image corners were not detected for this case.'
+        : 'Reviewed scene-map coordinates only. Image corners were not detected for this case.'}${facePreview ? ' A separate local facial landmark geometry comparison was run after explicit consent. Raw landmark coordinates are not included in the report and the face result does not change the background verdict.' : ''}`
+      outcome.record.faceGeometrySummary = facePreview ? {
+        sourceLandmarks: facePreview.sourceLandmarkCount,
+        suspectLandmarks: facePreview.suspectLandmarkCount,
+        alignedLandmarks: facePreview.alignedLandmarks,
+        alignmentThreshold: facePreview.alignmentThreshold,
+        meanResidual: facePreview.meanResidual,
+      } : null
       if (discovery) outcome.record.discovery = { provider: 'TinEye', domain: discovery.candidate.domain, providerRelevance: discovery.candidate.provider_score, sourceLinks: discovery.candidate.links.map(link => link.page).filter((link): link is string => !!link) }
       setProofMedia({ caseId: outcome.record.id, original: blobs[0], suspicious: blobs[1], blind: proofNeedsViewingChoice(session) })
-      setRecord(outcome.record); update({ ...session, step: 5, caseId: outcome.record.id }); window.scrollTo({ top: 0, behavior: 'instant' })
+      setRecord(outcome.record); setFaceEvidence(facePreview); update({ ...session, step: 5, caseId: outcome.record.id }); window.scrollTo({ top: 0, behavior: 'instant' })
     } catch (err) { if (alive.current && token === sequence.current) setError(err instanceof Error ? err.message : 'Analysis failed.') }
     finally { if (alive.current && token === sequence.current) setBusy(false) }
   }
-  function startOver() { sequence.current++; setBusy(false); setAdvanced(false); setIncludeMaskedThumbnails(false); clearCheckSession(); setRecord(null); update(emptyCheck()); setError(''); setNotice('Images and the previous comparison have been cleared from this workflow.') }
+  function startOver() { sequence.current++; faceRequest.current?.abort(); setFaceBusy(false); setFacePreview(null); setFaceConsent(false); setBusy(false); setAdvanced(false); setIncludeMaskedThumbnails(false); clearCheckSession(); setRecord(null); update(emptyCheck()); setError(''); setNotice('Images and the previous comparison have been cleared from this workflow.') }
   async function downloadPdf() {
     if (!current) { setError('The completed comparison is unavailable. Run the Check workflow again to generate its report.'); return }
     setError('')
@@ -148,10 +182,13 @@ export function Check() {
     } catch (err) { setError(err instanceof Error ? `Could not generate the PDF report: ${err.message}` : 'Could not generate the PDF report.') }
   }
   function closeCase() {
-    sequence.current++; setBusy(false); setAdvanced(false); setIncludeMaskedThumbnails(false); clearCheckSession(); clearProofMedia(); setRecord(null); update(emptyCheck()); setCloseDialog(false); setError('')
+    sequence.current++; faceRequest.current?.abort(); setFaceBusy(false); setFacePreview(null); setFaceConsent(false); setBusy(false); setAdvanced(false); setIncludeMaskedThumbnails(false); clearCheckSession(); clearProofMedia(); setRecord(null); update(emptyCheck()); setCloseDialog(false); setError('')
     setNotice('Case closed. This tab’s uploaded files, mask buffers, redacted previews, and comparison record were cleared from the workflow and session storage. Saved scene graphs, account or backup copies, and reports already downloaded remain under their own retention.')
   }
   const visible = (side: Side) => side === 'original' || (!session.blind && session.viewing)
+  const sourceFeatureNames = new Set(session.original.graph.room_objects.map(point => point.name.toLowerCase()))
+  const backgroundPairCount = session.suspicious.graph.room_objects.filter(point => sourceFeatureNames.has(point.name.toLowerCase())).length
+  const limitedBackgroundEvidence = !!session.localDetection && backgroundPairCount < 4
 
   return <div className="page check-workflow">
     <PageHeader eyebrow="Check" title="Check an Image" lede="Compare an original photograph with a suspected altered image, without unnecessarily exposing sensitive content." />
@@ -172,11 +209,14 @@ export function Check() {
       <p className="note">Your original’s covers and the suspicious photograph’s automatic person mask are excluded from local feature detection. Blind Mode keeps the suspicious image concealed. No photo is sent to a server by this local workflow.</p>
       <div className="actions"><Button variant="secondary" disabled={busy} onClick={() => go(1)}>Back</Button><Button disabled={busy || !session.original.confirmed} onClick={() => void continuePrivacy()}>{busy ? 'Masking and continuing…' : 'Continue to Feature Review'}</Button></div>
     </section>}
-    {session.step === 3 && <section className="stack"><h2>3. Review Background Features</h2><p>Cyan points are tentative details measured from pixels, or points you added. “Detail 1” is a label, not object recognition. Matching labels connect the same background detail in both images.</p><p className="note">The local matcher is experimental and can miss crops, rotation, repeated textures, and changed backgrounds. No camera transform is fitted. Concealed-image suggestions remain visually unconfirmed.</p>
-      <div className="check-columns">{sides.map(side => <ImageReview key={side} title={title(side)} photo={session[side]} visible={visible(side)} mode="features" disabled={busy} names={session.original.graph.room_objects.map(p => p.name)} onChange={photo => change(side, photo)} />)}</div>
-      <Button variant="secondary" disabled={busy} onClick={() => void findFeatures()}>Reset suggestions from images</Button>
-      <label className="checkline"><input disabled={busy} type="checkbox" checked={session.reviewed} onChange={e => update({ ...session, reviewed: e.target.checked })} /><span>I reviewed the available details and understand concealed details have not been visually confirmed.</span></label>
-      <div className="actions"><Button variant="secondary" disabled={busy} onClick={() => go(2)}>Back</Button><Button disabled={busy || !session.reviewed} onClick={() => go(4)}>Continue to Analysis</Button></div>
+    {session.step === 3 && <section className="stack"><h2>3. Review Available Features</h2><p>Cyan points are tentative local visual details, or points you added. “Detail 1” is a label, not object recognition. Select the comparison mode that fits these photographs.</p><p className="note">The background matcher is experimental and can miss crops, rotation, repeated textures, blur, occlusion, or changed backgrounds. Masked pixels are excluded. Concealed-image features remain visually unconfirmed.</p>
+      <section className="panel stack adaptive-analysis"><h3>Adaptive analysis</h3><div className="check-columns adaptive-mode-grid"><article><span className="status status-neutral">Mode A · Default</span><h4>Background geometry</h4><p>{session.detectedKeypoints ? `${session.detectedKeypoints.source} / ${session.detectedKeypoints.suspect} corners measured; ${backgroundPairCount} tentative point pairs available.` : 'Compare reviewed points from the background and environment.'} Masks are excluded before detection.</p></article><article><span className={`status ${limitedBackgroundEvidence ? 'status-amber' : 'status-neutral'}`}>Mode C · Evidence availability</span><h4>{limitedBackgroundEvidence ? 'Limited visual evidence' : 'Background feature coverage'}</h4><p>{limitedBackgroundEvidence ? 'Fewer than four background point pairs are available. The background result may be inconclusive; do not treat missing matches as proof that images are unrelated.' : 'Feature counts and mask exclusions are shown above. Sparse or low-quality photos can still produce an inconclusive result.'}</p></article></div>
+        {session.original.file && session.suspicious.file && <div className="face-consent-panel"><span className="status status-neutral">Mode B · Optional · On device</span><h4>Facial landmark geometry</h4><p>Use only for two close-up headshots with one visible face in each image; the model analyzes one face per image. It detects 18 named reference points from a 478-point mesh, but only the selected points are retained temporarily in memory to draw Proof. No identity search, database lookup, face template, external service, session-storage coordinates, or PDF coordinates.</p><p className="muted">Masked pixels are blacked out first and can make landmarks unavailable. Normalization uses estimated 3D eye/chin axes and inter-eye spacing. Pose, camera angle, lighting, expression, blur, and occlusion can still change the measurement. This compares facial shape only; it cannot identify a person or establish shared image origin.</p><label className="checkline"><input disabled={busy || faceBusy || !!facePreview} type="checkbox" checked={faceConsent} onChange={event => setFaceConsent(event.target.checked)} /><span>I explicitly consent to local facial landmark processing of both photographs for this comparison. No image or landmark data will be sent externally.</span></label><div className="actions"><Button variant="secondary" disabled={busy || faceBusy || !faceConsent || !!facePreview} onClick={() => void analyzeFaces()}>{faceBusy ? 'Analyzing facial geometry locally…' : 'Analyze facial geometry'}</Button>{faceBusy && <Button variant="ghost" onClick={() => { faceRequest.current?.abort(); faceRequest.current = null; sequence.current++; setFaceBusy(false); setFaceConsent(false); setNotice('Facial analysis cancelled. Images and landmarks were not sent externally.') }}>Cancel</Button>}{facePreview && <Button variant="ghost" onClick={() => { setFacePreview(null); setFaceConsent(false); setNotice('Temporary facial landmark coordinates cleared from the current view.') }}>Clear facial geometry</Button>}</div>{facePreview && <p role="status" className="note">{facePreview.alignedLandmarks}/{facePreview.sourceLandmarkCount} reference landmarks fall within {facePreview.alignmentThreshold.toFixed(2)} inter-eye spacings after local 3D-relative normalization. Mean residual: {facePreview.meanResidual?.toFixed(3)} inter-eye spacings. This is not an identity or source-image score.</p>}</div>}
+      </section>
+      <div className="check-columns">{sides.map(side => <ImageReview key={side} title={title(side)} photo={session[side]} visible={visible(side)} mode="features" disabled={busy || faceBusy} names={session.original.graph.room_objects.map(p => p.name)} onChange={photo => change(side, photo)} />)}</div>
+      <Button variant="secondary" disabled={busy || faceBusy} onClick={() => void findFeatures()}>Reset background suggestions from images</Button>
+      <label className="checkline"><input disabled={busy || faceBusy} type="checkbox" checked={session.reviewed} onChange={e => update({ ...session, reviewed: e.target.checked })} /><span>I reviewed the available details and understand concealed-image details have not been visually confirmed.</span></label>
+      <div className="actions"><Button variant="secondary" disabled={busy || faceBusy} onClick={() => go(2)}>Back</Button><Button disabled={busy || faceBusy || !session.reviewed} onClick={() => go(4)}>Continue to Analysis</Button></div>
     </section>}
     {session.step === 4 && <section className="panel stack"><h2>4. Analyze</h2><p>Compare {session.original.graph.room_objects.length} original details with {session.suspicious.graph.room_objects.length} suspicious-image details. Covered regions are excluded again before comparison.</p><p className="muted">The engine measures agreement between paired detail positions. At least four pairs are needed for a decisive result. Ambiguous or sparse details can produce insufficient evidence.</p><div className="actions"><Button variant="secondary" disabled={busy} onClick={() => go(3)}>Back</Button><Button disabled={busy} onClick={() => void analyze()}>{busy ? 'Analyzing…' : 'Analyze Images'}</Button></div><ol className="stages" aria-live="polite">{stages.map(stage => <li className="stage" key={stage.id}><b>{stage.label}</b><span>{stage.detail}</span></li>)}</ol></section>}
     {session.step === 5 && <section className="panel stack"><h2>5. Explore Proof</h2>{current ? <><h3>{current.result.verdict === 'Likely derivative' ? 'Background correspondence supported' : current.result.verdict === 'No link found' ? 'No reliable geometric correspondence found' : 'Insufficient evidence'}</h3><p>{current.result.aligned_points} of {current.result.usable_points} paired details fall within the alignment threshold.</p><p className="note">This does not prove AI manipulation, identity, consent, ownership, or wrongdoing. No matches does not prove the photos are unrelated.</p><div className="actions"><Button to={`/proof?case=${encodeURIComponent(current.id)}`}>Explore Evidence Connections</Button><Button variant="secondary" to="/results">Detailed results</Button><Button variant="secondary" onClick={() => go(3)}>Review features again</Button></div><Button onClick={() => go(6)}>Continue to Generate Evidence Report</Button></> : <><p>The comparison is no longer available. Photos must be reselected after refreshing.</p><Button onClick={startOver}>Start a new comparison</Button></>}</section>}

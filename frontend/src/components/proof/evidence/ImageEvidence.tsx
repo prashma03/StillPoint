@@ -1,5 +1,6 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { getProofMedia } from '../../../lib/checkSession'
@@ -24,28 +25,36 @@ function phaseIndex(progress: number) { return Math.min(4, Math.floor(progress *
 function useBlobTexture(blob: Blob | null) {
   const [texture, setTexture] = useState<THREE.Texture | null>(null)
   const [aspect, setAspect] = useState(0.72)
+  const [failed, setFailed] = useState(false)
+  const live = useRef<THREE.Texture | null>(null)
   useEffect(() => {
-    if (!blob) { setTexture(null); return }
+    setFailed(false)
+    if (!blob) {
+      live.current?.dispose()
+      live.current = null
+      setTexture(null)
+      return
+    }
+    let cancelled = false
     const url = URL.createObjectURL(blob)
     const image = new Image()
-    let cancelled = false
-    let map: THREE.Texture | null = null
     image.onload = () => {
-      if (cancelled) return
-      map = new THREE.Texture(image)
+      if (cancelled) { URL.revokeObjectURL(url); return }
+      const map = new THREE.Texture(image)
       map.colorSpace = THREE.SRGBColorSpace
       map.needsUpdate = true
+      live.current?.dispose()
+      live.current = map
       setAspect(image.naturalWidth ? image.naturalHeight / image.naturalWidth : 0.72)
       setTexture(map)
-    }
-    image.src = url
-    return () => {
-      cancelled = true
       URL.revokeObjectURL(url)
-      map?.dispose()
     }
+    image.onerror = () => { URL.revokeObjectURL(url); if (!cancelled) setFailed(true) }
+    image.src = url
+    return () => { cancelled = true }
   }, [blob])
-  return { texture, aspect }
+  useEffect(() => () => { live.current?.dispose(); live.current = null }, [])
+  return { texture, aspect, failed }
 }
 
 function planePoint(u: number, v: number, height: number): [number, number, number] {
@@ -54,14 +63,30 @@ function planePoint(u: number, v: number, height: number): [number, number, numb
 
 function PhotoPlane({ side, texture, aspect, progress }: { side: 'left' | 'right'; texture: THREE.Texture | null; aspect: number; progress: number }) {
   const material = useRef<THREE.MeshBasicMaterial>(null)
-  const height = PLANE_W * aspect
+  const height = PLANE_W * Math.max(aspect, 0.45)
+  const edges = useMemo(() => {
+    const plane = new THREE.PlaneGeometry(PLANE_W, height)
+    const geometry = new THREE.EdgesGeometry(plane)
+    plane.dispose()
+    return geometry
+  }, [height])
+  useEffect(() => () => edges.dispose(), [edges])
   useFrame(() => {
     const intro = THREE.MathUtils.smoothstep(progress, 0, 0.18)
-    if (material.current) material.current.opacity = 0.25 + intro * 0.75
+    if (!material.current) return
+    if (texture && material.current.map !== texture) {
+      material.current.map = texture
+      material.current.needsUpdate = true
+    }
+    material.current.color.set(texture ? '#ffffff' : '#1a2c3d')
+    material.current.opacity = texture ? 0.55 + intro * 0.45 : 0.85
   })
-  return <mesh position={[side === 'left' ? -OFFSET : OFFSET, 0, 0]} scale={[1, 1, 1]}>
+  return <mesh key={texture?.uuid ?? `${side}-empty`} position={[side === 'left' ? -OFFSET : OFFSET, 0, 0]}>
     <planeGeometry args={[PLANE_W, height]} />
-    <meshBasicMaterial ref={material} map={texture ?? undefined} color={texture ? '#ffffff' : '#152232'} transparent opacity={1} toneMapped={false} />
+    <meshBasicMaterial ref={material} map={texture ?? undefined} color={texture ? '#ffffff' : '#1a2c3d'} transparent opacity={1} toneMapped={false} />
+    <lineSegments geometry={edges}>
+      <lineBasicMaterial color={texture ? '#8fd7e4' : '#5caed0'} transparent opacity={0.9} />
+    </lineSegments>
   </mesh>
 }
 
@@ -98,9 +123,11 @@ function EvidenceCloud({ fit, progress, aspects, selected }: { fit: ImageCorresp
     const pointsGeometry = new THREE.BufferGeometry()
     pointsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
     pointsGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    pointsGeometry.setDrawRange(0, 0)
     const lineGeometry = new THREE.BufferGeometry()
     lineGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3))
     lineGeometry.setAttribute('color', new THREE.BufferAttribute(lineColors, 3))
+    lineGeometry.setDrawRange(0, 0)
     return { pointsGeometry, lineGeometry, extraCount: extras.length }
   }, [aspects, fit.unmatchedSource, fit.unmatchedSuspect, shown])
 
@@ -137,6 +164,8 @@ function EvidenceCloud({ fit, progress, aspects, selected }: { fit: ImageCorresp
       paint((shown.length * 2 + index) * 3, slate, index < geometry.extraCount * extraWave ? 0.75 : 0)
     }
     pointAttribute.needsUpdate = true
+    const extraVisible = stage < 1 ? 0 : stage === 1 ? Math.ceil(geometry.extraCount * local) : geometry.extraCount
+    points.current?.geometry.setDrawRange(0, visiblePoints * 2 + extraVisible)
     const lineAttribute = geometry.lineGeometry.getAttribute('color') as THREE.BufferAttribute
     const lineColors = lineAttribute.array as Float32Array
     shown.forEach((match, index) => {
@@ -155,10 +184,10 @@ function EvidenceCloud({ fit, progress, aspects, selected }: { fit: ImageCorresp
 
   return <>
     <points ref={points} geometry={geometry.pointsGeometry}>
-      <pointsMaterial size={0.045} sizeAttenuation vertexColors transparent depthWrite={false} toneMapped={false} />
+      <pointsMaterial size={0.13} sizeAttenuation vertexColors transparent depthTest={false} depthWrite={false} toneMapped={false} />
     </points>
     <lineSegments ref={lines} geometry={geometry.lineGeometry}>
-      <lineBasicMaterial vertexColors transparent depthWrite={false} toneMapped={false} />
+      <lineBasicMaterial vertexColors transparent depthTest={false} depthWrite={false} toneMapped={false} />
     </lineSegments>
   </>
 }
@@ -211,11 +240,10 @@ class Boundary extends Component<{ children: ReactNode; fit: ImageCorrespondence
 }
 
 function StaticFit({ fit }: { fit: ImageCorrespondence }) {
-  const verified = fit.matches.filter((match) => match.status === 'verified').slice(0, 24)
   return <svg viewBox="0 0 760 240" role="img" aria-label="Two image planes with measured correspondences">
     <rect x="40" y="30" width="280" height="180" fill="#152232" stroke="#7091aa" />
     <rect x="440" y="30" width="280" height="180" fill="#152232" stroke="#7091aa" />
-    {verified.map((match) => <line key={match.name} x1={40 + match.sourceX * 280} y1={30 + match.sourceY * 180} x2={440 + match.suspectX * 280} y2={30 + match.suspectY * 180} stroke="#50DDE8" />)}
+    {fit.matches.slice(0, 24).map((match) => <line key={match.name} x1={40 + match.sourceX * 280} y1={30 + match.sourceY * 180} x2={440 + match.suspectX * 280} y2={30 + match.suspectY * 180} stroke={match.status === 'verified' ? '#50DDE8' : match.status === 'rejected' ? '#E47C83' : '#F3B75E'} />)}
   </svg>
 }
 
@@ -261,7 +289,8 @@ export function ImageEvidence({ record }: { record: CaseRecord }) {
   }, [])
 
   if (!fit) return null
-  const insufficient = fit.candidates < 4 || !fit.matrix
+  const insufficient = fit.verified === 0
+  const missingPhotographs = (!media?.original && !media?.suspicious) || original.failed || (revealSuspicious && suspicious.failed)
 
   async function toggleFullscreen() {
     try {
@@ -278,8 +307,10 @@ export function ImageEvidence({ record }: { record: CaseRecord }) {
         <span>Measured image correspondences · 2.5D presentation</span>
         <span>Drag to orbit · scroll or use controls to zoom</span>
       </div>
-      <div className={`${styles.sceneLabel} ${styles.sceneOriginal}`}>ORIGINAL PHOTOGRAPH</div>
-      <div className={`${styles.sceneLabel} ${styles.sceneCompared}`}>{revealSuspicious ? 'SUSPECTED PHOTOGRAPH' : 'SUSPECTED PHOTOGRAPH CONCEALED'}</div>
+      <div className={`${styles.sceneLabel} ${styles.sceneOriginal}`}>ORIGINAL PHOTOGRAPH<span>{record.sourceFile?.name || record.sourceLabel}</span></div>
+      <div className={`${styles.sceneLabel} ${styles.sceneCompared}`}>{revealSuspicious ? 'SUSPECTED PHOTOGRAPH' : 'SUSPECTED PHOTOGRAPH CONCEALED'}<span>{record.suspectFile?.name || record.suspectLabel}</span></div>
+      {missingPhotographs && <div className={styles.fallback} role="alert"><p>The photographs for this comparison are not available in this tab. Refreshing or reopening the app clears them. Run the comparison again from Check to restore the images. The measured coordinates below are still available.</p><Link to="/check">Return to Check</Link></div>}
+      {!missingPhotographs && insufficient && <p className={styles.emptyMatches}>No verified correspondences found</p>}
       <Boundary fit={fit}>
         <Canvas className={styles.canvas} camera={{ position: [0, 0.4, 5.8], fov: 35, near: 0.1, far: 40 }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }} onCreated={({ gl }) => { gl.setClearColor('#080e16', 1) }}>
           <ambientLight intensity={0.8} />
