@@ -32,7 +32,12 @@ describe('local Discover scan', () => {
     const onCompare = vi.fn()
     render(<DiscoverScan onContinue={onContinue} onCompare={onCompare} />)
     fireEvent.change(screen.getByLabelText(/Choose a photograph/), { target: { files: [new File(['fixture'], 'room.png', { type: 'image/png' })] } })
-    expect(await screen.findByText('Discovery Scan Complete', {}, { timeout: 5000 })).toBeTruthy()
+    const again = screen.queryByRole('button', { name: 'Scan Image' })
+    if (again && !again.hasAttribute('disabled')) fireEvent.click(again)
+    await waitFor(() => {
+      const text = document.body.textContent ?? ''
+      if (!text.includes('Discovery Scan Complete')) throw new Error(text.replace(/\s+/g, ' ').slice(0, 700))
+    }, { timeout: 8000 })
     expect(screen.getByRole('heading', { name: 'Your Discovery Results' })).toBeTruthy()
     expect(screen.getByText(/visual structure has been mapped successfully/)).toBeTruthy()
     expect(screen.getAllByText(/not a verified 3D reconstruction|no room was invented/).length).toBeGreaterThan(0)
@@ -49,5 +54,5 @@ describe('local Discover scan', () => {
     expect(await report?.text()).toMatch(/High-contrast regions: \d+/)
     fireEvent.click(screen.getByRole('button', { name: 'Continue to Proof' }))
     await waitFor(() => expect(onContinue).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'room.png', cornerCount: expect.any(Number) })))
-  })
+  }, 15000)
 })

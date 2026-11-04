@@ -30,7 +30,7 @@ export function PublicMatchSearch({ initialSceneId = '', startOpen = false }: { 
       .catch(() => { if (!controller.signal.aborted) setStatus({ provider: 'TinEye', configured: false, sources: '', missing: ['unavailable'] }) })
     return () => { controller.abort(); request.current?.abort() }
   }, [open])
-  useEffect(() => { if (open && startOpen) panel.current?.scrollIntoView({ block: 'start' }) }, [open, startOpen])
+  useEffect(() => { if (open && startOpen) panel.current?.scrollIntoView?.({ block: 'start' }) }, [open, startOpen])
 
   function reset() { request.current?.abort(); setConsent(false); setNonSensitive(false); setCandidates(null); setError(''); setMessage(''); setRunning(false) }
   async function search() {

@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { Button, usePageTitle } from '../components/ui'
 import { sceneStore } from '../lib/storage'
 import { localTrustOwnerId, trustStore, type EvidenceKind, type EvidenceStatus, type TrustClaim } from '../lib/trust'
+import { StillpointIllustration, type IllustrationScene } from '../components/illustrations/StillpointArt'
+import './Trust.css'
 
 const evidenceInfo: { kind: EvidenceKind; title: string; description: string }[] = [
   { kind: 'source-possession', title: 'Source possession', description: 'A source file hash can link a report to a file. It does not prove who made the image or owns it.' },
@@ -14,10 +16,10 @@ const statusText: Record<EvidenceStatus, string> = {
   'verified-externally': 'Verified by external provider', unavailable: 'Unavailable in this build',
 }
 const cards = [
-  { id: 'evidence', icon: '◈', title: 'Evidence Integrity', text: 'Four independent evidence categories, local claim records, and response safeguards.' },
-  { id: 'privacy', icon: '⌑', title: 'Privacy & Consent', text: 'See what stays in this session and when a separate consent is needed.' },
-  { id: 'limits', icon: '◎', title: 'Analysis Limits', text: 'Understand what image geometry can show, and where it stops.' },
-  { id: 'verify', icon: '▤', title: 'Verify a Report', text: 'Check report authenticity and integrity status.' },
+  { id: 'evidence', illustration: 'proof', label: 'Follow the evidence', title: 'Evidence Integrity', text: 'Every claim has a source. Every source has limits.' },
+  { id: 'privacy', illustration: 'privacy', label: 'Know what you share', title: 'Privacy & Consent', text: 'Your images. Your choices. See what stays here.' },
+  { id: 'limits', illustration: 'limits', label: 'Leave room for uncertainty', title: 'Analysis Limits', text: 'What geometry can tell you, and what it cannot.' },
+  { id: 'verify', illustration: 'report', label: 'Look a little closer', title: 'Verify a Report', text: 'Understand report integrity. Verification is not connected yet.' },
 ] as const
 type Detail = typeof cards[number]['id']
 
@@ -82,12 +84,13 @@ export function Trust() {
 
   return <main className={`page trust-page trust-redesign${detail ? ' has-detail' : ''}`} data-revision={revision}>
     <header className="trust-hero">
-      <div><span className="eyebrow">STILLPOINT · TRUST CENTER</span><h1>{detail ? activeCard?.title : 'Trust is built on transparency.'}</h1><p>{detail ? activeCard?.text : 'See how Stillpoint handles evidence, privacy, and the limits of image analysis.'}</p></div>
-      {!detail && <div className="trust-hero-mark" aria-hidden="true"><span>◇</span><i /><i /><i /></div>}
+      <div className="trust-hero-copy"><span className="eyebrow">STILLPOINT · TRUST CENTER</span><h1>{detail ? activeCard?.title : 'Trust is built on transparency.'}</h1><p>{detail ? activeCard?.text : 'A little clarity goes a long way. Explore how your images, choices, and evidence are handled.'}</p>{!detail && <span className="trust-editorial-note"><span aria-hidden="true">↳</span> A clearer picture. On your terms.</span>}</div>
+      {!detail && <div className="trust-welcome-art"><StillpointIllustration scene="trust" /><span className="trust-art-caption">Here to guide. Never to decide.</span></div>}
     </header>
     {!detail ? <>
       <div className="trust-session-status"><span className="trust-status-dot" /><div><strong>Guest session · local only</strong><span>Claims and private responses stay in this tab session. No live reviewer, identity provider, or external enforcement service is connected.</span></div></div>
-      <nav className="trust-dashboard-grid" aria-label="Trust topics">{cards.map(card => <button key={card.id} className="trust-dashboard-card" type="button" onClick={() => { setDetail(card.id); setMessage('') }}><span className="trust-card-icon"><Icon name={card.id} /></span><span className="trust-card-copy"><strong>{card.title}</strong><span>{card.text}</span></span><span className="trust-card-arrow" aria-hidden="true">↗</span></button>)}</nav>
+      <div className="trust-topics-heading"><h2>A closer look at Stillpoint</h2><span>Four things worth understanding</span></div>
+      <nav className="trust-dashboard-grid" aria-label="Trust topics">{cards.map((card, index) => <button key={card.id} className={`trust-dashboard-card trust-illustrated-card trust-illustrated-card--${card.id}`} type="button" onClick={() => { setDetail(card.id); setMessage('') }}><span className="trust-card-copy"><span className="trust-card-kicker"><span aria-hidden="true">0{index + 1} / </span>{card.label}</span><strong>{card.title}</strong><span>{card.text}</span><span className="trust-card-link" aria-hidden="true">Explore <span>↗</span></span></span><span className="trust-topic-art"><StillpointIllustration scene={card.illustration as IllustrationScene} animated={false} /></span></button>)}</nav>
       <footer className="trust-dashboard-footer"><span>Evidence is shown with its source and status.</span><Button to="/settings" variant="ghost">Privacy settings</Button></footer>
     </> : <section className="trust-detail-view" key={detail} aria-labelledby="trust-detail-title">
       <div className="trust-detail-bar"><Button variant="secondary" onClick={() => { setDetail(null); setMessage('') }}>← Back to Trust</Button><span className="trust-detail-index">TRUST CENTER / {activeCard?.title.toUpperCase()}</span></div>

@@ -9,7 +9,7 @@ const stages = ['Analyzing image', 'Mapping visual structures', 'Connecting feat
 export type DiscoverySummary = { fileName: string; cornerCount: number; edgeCount: number; lineCount: number; regionCount: number; mode: DiscoverLayout['mode'] }
 
 function reducedMotion() {
-  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  try { return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch { return false }
 }
 function pause(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, reducedMotion() ? 0 : ms))
@@ -42,11 +42,11 @@ export function DiscoverScan({ onContinue, onCompare }: { onContinue: (summary: 
       const pixels = await decodeToPixels(target, 720)
       if (runId.current !== id) return
       const detected = analyzeDiscoverImage(pixels)
-      setStage(1); await pause(360)
+      setStage(1); await pause(520)
       if (runId.current !== id) return
-      setLayout(detected); setStage(2); await pause(360)
+      setLayout(detected); setStage(2); await pause(640)
       if (runId.current !== id) return
-      setStage(3); await pause(420)
+      setStage(3); await pause(720)
       if (runId.current !== id) return
       setStage(4)
     } catch (err) {
@@ -71,6 +71,7 @@ export function DiscoverScan({ onContinue, onCompare }: { onContinue: (summary: 
   return <section className={`panel discover-scan${done ? ' is-complete' : ''}`} aria-labelledby="discover-scan-title">
     <div className="discover-scan-heading"><div><p className="eyebrow">Private local scan</p><h2 id="discover-scan-title">Explore the visual structure</h2><p className="muted">Upload a photograph. Stillpoint measures corners, edges, and straight boundaries in this browser, then builds a spatial view from those measurements. The photograph is not sent anywhere by this scan.</p></div>{done && <span className="discover-shield" aria-label="Discovery scan complete">✓</span>}</div>
     <label className="field"><span>Choose a photograph (JPEG, PNG, or WebP · up to 20 MB)</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={event => { const next = event.currentTarget.files?.[0] ?? null; setError(''); if (next && (!['image/jpeg', 'image/png', 'image/webp'].includes(next.type) || next.size > 20 * 1024 * 1024)) { setError('Choose a JPEG, PNG, or WebP image up to 20 MB.'); setFile(null) } else setFile(next); event.currentTarget.value = '' }} /></label>
+    {file && <p className="muted">Current photograph: {file.name}. It stays in this browser.</p>}
     <div className="actions"><Button disabled={!file || busy} onClick={() => file && void run(file)}>{busy ? 'Scanning image…' : 'Scan Image'}</Button></div>
     {error && <p role="alert" className="error">{error}</p>}
     {stage >= 0 && <ol className="discover-scan-stages" aria-live="polite">{stages.slice(0, stage + 1).map((label, index) => <li key={label} className={index === stage ? 'is-active' : 'is-done'}>{label}</li>)}</ol>}

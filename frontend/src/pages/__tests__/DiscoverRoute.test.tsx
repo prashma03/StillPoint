@@ -19,7 +19,7 @@ describe('Discover page', () => {
     expect(screen.queryByText(/TINEYE_API_KEY/)).toBeNull()
     expect(screen.queryByText('Provider configuration')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Search for Public Matches' }))
-    expect(await screen.findByText('Public image search is currently unavailable.')).toBeTruthy()
+    expect(await screen.findByText(/Public image search is currently unavailable/)).toBeTruthy()
     expect(screen.queryByText(/TINEYE_API_KEY/)).toBeNull()
     expect(screen.queryByText('Registered original')).toBeNull()
     expect(screen.getByText('Local discovery scan')).toBeTruthy()

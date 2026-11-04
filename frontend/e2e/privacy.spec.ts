@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { readdirSync } from 'node:fs'
 
-test('bundled segmentation runs in a real browser without any image POST or external request', async ({ page }) => {
+test('bundled segmentation runs in a real browser without any image POST or external request', async ({ page, baseURL }) => {
   const imagePosts: string[] = [], external: string[] = []
   page.on('request', request => {
     if (request.method() === 'POST') imagePosts.push(request.url())
-    if (!request.url().startsWith('http://127.0.0.1:5186') && !request.url().startsWith('data:')) external.push(request.url())
+    if (!request.url().startsWith(`${baseURL}/`) && !request.url().startsWith('data:')) external.push(request.url())
   })
   // Isolate inference from React/Vite HMR; model code, worker, WASM and weights remain real.
   await page.route('**/mask-smoke', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Local mask smoke test</title>' }))

@@ -1,0 +1,15 @@
+.sp-art { display: block; width: 100%; height: auto; overflow: visible; pointer-events: none; }
+.sp-preference-art { width: 36px; height: 36px; flex: 0 0 auto; }
+.sp-companion-body { transform-origin: 140px 155px; }
+.sp-eyes { transform-box: fill-box; transform-origin: center; }
+.sp-wave { transform-origin: 175px 130px; }
+.sp-art--animated .sp-companion-body { animation: sp-breathe 6s ease-in-out 2; }
+.sp-art--animated .sp-eyes { animation: sp-blink 7s ease-in-out 2; }
+.sp-art--animated .sp-companion--welcome .sp-wave { animation: sp-hello 2.4s ease-in-out 1; }
+/* Deliberately finite motion: a welcome, rather than a perpetually moving UI. */
+@keyframes sp-breathe { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px) rotate(-1deg); } }
+@keyframes sp-blink { 0%,42%,46%,100% { transform: scaleY(1); } 44% { transform: scaleY(.12); } }
+@keyframes sp-hello { 0%,30%,100% { transform: rotate(0); } 10%,50% { transform: rotate(-12deg); } 20%,60% { transform: rotate(7deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .sp-art *, .sp-art--animated * { animation: none !important; transition: none !important; }
+}

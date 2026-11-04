@@ -73,10 +73,9 @@ function countRegions(edges: Float32Array, width: number, height: number) {
     const x1 = Math.max(x0 + 1, Math.floor((col + 1) * width / cols))
     const y0 = Math.floor(row * height / rows)
     const y1 = Math.max(y0 + 1, Math.floor((row + 1) * height / rows))
-    let sum = 0
-    let count = 0
-    for (let y = y0; y < y1; y += 2) for (let x = x0; x < x1; x += 2) { sum += edges[y * width + x]; count += 1 }
-    if (count && sum / count >= 0.42) on[row * cols + col] = 1
+    let peak = 0
+    for (let y = y0; y < y1; y += 2) for (let x = x0; x < x1; x += 2) peak = Math.max(peak, edges[y * width + x])
+    if (peak >= 0.5) on[row * cols + col] = 1
   }
   const seen = new Uint8Array(on.length)
   let regions = 0
