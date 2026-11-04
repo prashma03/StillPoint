@@ -28,7 +28,13 @@ export async function segmentLocally(file: Blob, signal: AbortSignal): Promise<P
     const cancel = () => { dispose(); reject(new DOMException('Masking cancelled.', 'AbortError')) }
     const timer = setTimeout(() => { dispose(); reject(new Error('On-device masking timed out. Use manual masking. No image was sent externally.')) }, 45000)
     signal.addEventListener('abort', cancel, { once: true })
-    worker.onerror = () => { dispose(); reject(new Error('The local masking model could not load. Use manual masking; no external fallback was attempted.')) }
+    worker.onerror = event => {
+      event.preventDefault()
+      dispose()
+      reject(Object.assign(new Error('The on-device masking worker could not start. Reload this page and try again. Manual masking remains available; no image was sent externally.'), {
+        diagnostic: event.message?.slice(0, 400) || 'Worker script loading or execution failed',
+      }))
+    }
     worker.onmessage = (event: MessageEvent<PixelMask & { error?: string; diagnostic?: string }>) => {
       dispose()
       const mask = event.data
