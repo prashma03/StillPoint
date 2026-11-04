@@ -104,6 +104,8 @@ a { color: inherit; }
 .nav-link.active { color: var(--text); }
 .nav-link.active::after { transform: scaleX(1); }
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.header-signin { padding: 8px 10px; border-radius: 9px; color: var(--muted); text-decoration: none; font-size: 13px; }
+.header-signin:hover, .header-signin.active { color: var(--text); background: var(--surface); }
 .icon-btn {
   width: 44px;
   height: 44px;
@@ -449,25 +451,6 @@ dialog h2 { font-size: 1.4rem; }
 }
 .scene-copy a, .scene-copy button, .scene-copy input, .scene-copy label { pointer-events: auto; }
 .scene-copy .lede { text-shadow: 0 1px 0 rgba(16, 25, 35, 0.4); }
-.scene-nav {
-  position: fixed;
-  z-index: 5;
-  left: 16px;
-  top: calc(var(--nav-h) + env(safe-area-inset-top) + 10px);
-  display: flex;
-  gap: 6px;
-}
-.scene-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
-  background: rgba(16, 25, 35, 0.86);
-  color: var(--text);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.scene-btn[aria-current="true"] { color: var(--text); border-color: var(--accent); }
 .align-btn { position: fixed; z-index: 5; top: calc(var(--nav-h) + env(safe-area-inset-top) + 8px); right: 16px; }
 .demo-tag {
   margin: 0 0 12px;
@@ -547,6 +530,9 @@ dialog h2 { font-size: 1.4rem; }
 .auth-note { margin: -5px 0 0; color: var(--muted); font-size: 12px; }.auth-submit { width: 100%; justify-content: space-between; margin-top: 3px; }.auth-submit span { font-size: 20px; }
 .auth-switch { margin: 22px 0 0; text-align: center; color: var(--muted); font-size: 13px; }.auth-switch a { margin-left: 4px; color: var(--text); text-decoration-color: var(--accent); text-underline-offset: 3px; }
 .auth-footer { position: absolute; bottom: 20px; color: var(--muted); font-size: 12px; letter-spacing: .04em; }
+.auth-availability { margin: 18px 0; font-size: 14px; }
+.auth-actions { margin-top: 20px; }
+.home-privacy-note { max-width: 62ch; margin: 18px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
 /* Floating Stillpoint Guide */
 .guide-root { position: fixed; z-index: 30; right: max(18px, env(safe-area-inset-right)); bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 18px); font-size: 14px; }
@@ -597,13 +583,6 @@ dialog h2 { font-size: 1.4rem; }
     background: linear-gradient(90deg, rgba(16, 25, 35, 0.94), rgba(16, 25, 35, 0.5) 76%, transparent);
   }
   .home-scene.evidence .scene-copy { max-width: 720px; }
-  .scene-nav {
-    left: auto;
-    right: 28px;
-    top: 50%;
-    transform: translateY(-50%);
-    flex-direction: column;
-  }
   .align-btn { right: 28px; }
   .split { grid-template-columns: 1.15fr 0.85fr; align-items: start; }
   .split-even { grid-template-columns: 1fr 1fr; }

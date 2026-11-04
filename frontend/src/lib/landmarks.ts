@@ -166,6 +166,29 @@ export function sanitizeAiPoints(
   return { kept, dropped }
 }
 
+/**
+ * Validate a user relabel. Returns the cleaned name or an error message for
+ * the editor. Person names and duplicates are refused; the point itself is
+ * never renamed implicitly.
+ */
+export function validateRename(
+  graph: SceneGraph,
+  name: string,
+  next: string,
+): { ok: true; name: string } | { ok: false; error: string } {
+  const cleaned = cleanName(next)
+  if (!cleaned || cleaned === name) {
+    return cleaned === name ? { ok: true, name } : { ok: false, error: 'That label is empty.' }
+  }
+  if (FORBIDDEN_NAMES.has(cleaned.toLowerCase())) {
+    return { ok: false, error: 'People are never reference points. Pick a background label.' }
+  }
+  if (graph.room_objects.some((item) => item.name !== name && item.name.toLowerCase() === cleaned.toLowerCase())) {
+    return { ok: false, error: `“${cleaned}” is already used. Pick a different label.` }
+  }
+  return { ok: true, name: cleaned }
+}
+
 export type MergeResult = {
   graph: SceneGraph
   added: number

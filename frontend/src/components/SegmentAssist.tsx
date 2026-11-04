@@ -16,8 +16,8 @@ type Props = {
 
 /**
  * Experimental automatic person detection. Sends the photo (downscaled,
- * metadata stripped, person still visible) to the local backend for
- * segmentation, and returns coarse rectangles for the user to review.
+ * metadata stripped, person still visible) through the local backend to the
+ * configured model provider for segmentation, and returns coarse rectangles.
  * Only rectangles come back; pixel masks are discarded server-side.
  * A suggestion is never a confirmed mask.
  */
@@ -92,10 +92,10 @@ export function SegmentAssist({ file, onRects, consentScope }: Props) {
       )}
       {status === 'ready' && (
         <>
-          <p className="muted">Detection sees the full photo, including the person. Only coarse rectangles come back; pixel masks are discarded and nothing is stored.</p>
+          <p className="muted">Detection sees the downscaled full photo, including the person. It passes through the local backend to the configured Meta/Muse model provider; the backend holds it in memory for the request. Provider retention is not verified by Stillpoint. Only coarse rectangles come back; pixel masks are discarded and not saved by this app.</p>
           <label className="checkline">
             <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-            <span>I consent to sending this photo for person detection. I understand the person is visible to the model service. This consent covers this photo only.</span>
+            <span>I consent to sending this photo to the configured model provider for person detection. The person is visible to that provider. This consent covers this photo only.</span>
           </label>
           <div className="actions">
             <Button onClick={() => void run()} disabled={disabled}>

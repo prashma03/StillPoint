@@ -69,7 +69,7 @@ export function Trust() {
 
   return <div className="page trust-page" data-revision={revision}>
     <PageHeader eyebrow="Trust & Verification" title="Evidence with limits, safeguards for both sides." lede="Background similarity can support a relationship between images. It cannot prove identity, consent, ownership, or wrongdoing." />
-    <div className="trust-banner"><strong>Local demo workflow</strong><span>Claims and private responses stay in this browser. There is no live reviewer service, identity provider, or external enforcement integration.</span></div>
+    <div className="trust-banner"><strong>Guest session · account features unavailable</strong><span>Claims and private responses are kept in this tab session only. They are not protected by an account and do not sync across sessions. There is no live reviewer service, identity provider, or external enforcement integration.</span></div>
 
     <section className="trust-section">
       <div className="section-heading"><div><span className="eyebrow">01 · Evidence</span><h2>Four independent categories</h2></div><p>Submitted and self-declared evidence is never displayed as verified.</p></div>
@@ -87,7 +87,7 @@ export function Trust() {
         {claim.suspiciousFlags.length > 0 && <p className="trust-flag">Activity flagged for human review. This is not a finding about anyone's honesty.</p>}
         <div className="actions"><Button variant="secondary" onClick={() => { setAppealTarget(claim.id); setAppealKind('appeal') }}>Add information / appeal</Button>{claim.conflictsWith[0] && <Button variant="ghost" onClick={() => { setAppealTarget(claim.conflictsWith[0]); setAppealKind('counter-notice') }}>Respond to conflicting claim</Button>}</div>
       </article>)}</div>}
-      {responses.length > 0 && <section className="trust-responses"><h3>Your private responses</h3>{responses.map((response) => <article key={response.id}><span>{response.kind === 'appeal' ? 'Appeal' : 'Counter-notice'} · {new Date(response.createdAt).toLocaleString()}</span><p>{response.text}</p><small>Only visible in this browser under your local profile.</small></article>)}</section>}
+      {responses.length > 0 && <section className="trust-responses"><h3>Your private responses</h3>{responses.map((response) => <article key={response.id}><span>{response.kind === 'appeal' ? 'Appeal' : 'Counter-notice'} · {new Date(response.createdAt).toLocaleString()}</span><p>{response.text}</p><small>Visible in this browser tab session; not protected by an account.</small></article>)}</section>}
       {message && <p role="status" className="trust-message">{message}</p>}
     </section>
 
@@ -98,7 +98,7 @@ export function Trust() {
       <p className="note rule">High-impact actions require 2 independent approvals out of 3 assigned reviewers before a claim could be eligible for an external enforcement request. This is a workflow gate, not proof. This build has no reviewer identities or external enforcement connection and never sends takedowns.</p>
     </section>
 
-    <section className="trust-section"><div className="section-heading"><div><span className="eyebrow">04 · Privacy</span><h2>Keep private evidence private</h2></div></div><div className="trust-privacy-grid"><p>Stillpoint stores no face embeddings or identity documents. Identity checks and live scene challenges are unavailable. External image processing requires separate explicit consent in the mapping workflow.</p><p>Private claimant evidence is not exposed to other claimants or the Guide. Local audit entries record state changes without image content; browser storage is editable and is not a tamper-proof server ledger.</p></div></section>
+    <section className="trust-section"><div className="section-heading"><div><span className="eyebrow">04 · Privacy</span><h2>Keep private evidence private</h2></div></div><div className="trust-privacy-grid"><p>Stillpoint stores no face embeddings or identity documents. Identity checks and live scene challenges are unavailable. External image processing requires separate explicit consent in the mapping workflow.</p><p>Claim metadata and response text stay in this tab’s session storage and are not sent to another claimant, the Guide, or a reviewer service. Browser storage can be inspected or changed by someone with access to this browser profile; it is not a protected account or tamper-proof server ledger.</p></div></section>
 
     <section className="trust-section trust-final"><div><span className="eyebrow">Stillpoint Guide</span><h2>What does a matching background mean?</h2><p>No. A background match may support a relationship between images, but it cannot establish identity, consent, ownership, or responsibility.</p></div><Button to="/settings" variant="secondary">Privacy settings</Button></section>
 

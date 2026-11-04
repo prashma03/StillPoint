@@ -34,7 +34,7 @@ export function Settings() {
       <PageHeader
         eyebrow="Settings"
         title="Privacy on this device"
-        lede="Stillpoint keeps scene graphs in this browser. It does not upload photographs."
+        lede="Comparisons run in this browser by default. Optional AI mapping sends image data to the configured model provider only after separate consent."
       />
       <div className="stack">
         <label className="checkline">
@@ -62,10 +62,12 @@ export function Settings() {
           </ul>
           <h2>What is not stored</h2>
           <ul className="limits">
-            <li>Photograph pixels</li>
+            <li>Photograph pixels saved to browser storage or written to disk by the local backend</li>
             <li>Face or body measurements</li>
-            <li>A copy on a server</li>
+            <li>Face or body embeddings in the configured Stillpoint backend</li>
           </ul>
+          <h2>Optional model processing</h2>
+          <p className="muted">AI-assisted mapping creates a downscaled JPEG in this browser and removes image metadata. Scene mapping sends the masked image; person detection sends the image with the person visible. Both requests pass through the local backend and then to the configured model endpoint. The local backend handles request bytes in memory and does not write them to disk or log request bodies. Stillpoint cannot verify or control the model provider’s retention, training, or backup practices. Use manual mapping if you do not want image data sent to that provider.</p>
         </section>
         <section className="panel">
           <h2>Engine rules</h2>

@@ -31,6 +31,34 @@ function browserMemory(): Memory | null {
   }
 }
 
+function browserSessionMemory(): Memory | null {
+  try {
+    if (typeof sessionStorage === 'undefined') return null
+    return sessionStorage
+  } catch {
+    return null
+  }
+}
+
+/** Keep guest scene and note data only for this tab; migrate older local data. */
+function guestSessionMemory(key: string): Memory {
+  const session = browserSessionMemory()
+  if (!session) return createMemoryStore()
+  try {
+    if (!session.getItem(key)) {
+      const persistent = browserMemory()
+      const legacy = persistent?.getItem(key)
+      if (legacy) {
+        session.setItem(key, legacy)
+        persistent?.removeItem(key)
+      }
+    }
+  } catch {
+    // Keep the current session usable if storage is restricted or full.
+  }
+  return session
+}
+
 export function assertNoImagePayload(value: unknown): void {
   const text = JSON.stringify(value)
   if (IMAGE_MARK.test(text)) throw new Error('Refusing to store image data.')
@@ -166,7 +194,7 @@ let localSettings: ReturnType<typeof createSettingsStore> | null = null
 let localReviews: ReturnType<typeof createReviewStore> | null = null
 
 export function sceneStore() {
-  if (!localScenes) localScenes = createSceneStore(browserMemory() ?? createMemoryStore())
+  if (!localScenes) localScenes = createSceneStore(guestSessionMemory(SCENES))
   return localScenes
 }
 
@@ -176,7 +204,7 @@ export function settingsStore() {
 }
 
 export function reviewStore() {
-  if (!localReviews) localReviews = createReviewStore(browserMemory() ?? createMemoryStore())
+  if (!localReviews) localReviews = createReviewStore(guestSessionMemory(REVIEWS))
   return localReviews
 }
 

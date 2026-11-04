@@ -116,8 +116,10 @@ let singleton: ReturnType<typeof createTrustStore> | null = null
 export function trustStore() {
   if (!singleton) {
     const memory = {
-      getItem(key: string) { try { return localStorage.getItem(key) } catch { return null } },
-      setItem(key: string, value: string) { try { localStorage.setItem(key, value) } catch { throw new Error('Browser storage is unavailable.') } },
+      // Guest claim records and response text are tab-session data until a
+      // real authenticated account service exists.
+      getItem(key: string) { try { return sessionStorage.getItem(key) } catch { return null } },
+      setItem(key: string, value: string) { try { sessionStorage.setItem(key, value) } catch { throw new Error('Session storage is unavailable.') } },
     }
     singleton = createTrustStore(memory)
   }
@@ -127,8 +129,8 @@ export function trustStore() {
 export function localTrustOwnerId() {
   const key = 'stillpoint.trust.owner.v1'
   try {
-    let owner = localStorage.getItem(key)
-    if (!owner) { owner = crypto.randomUUID(); localStorage.setItem(key, owner) }
+    let owner = sessionStorage.getItem(key)
+    if (!owner) { owner = crypto.randomUUID(); sessionStorage.setItem(key, owner) }
     return owner
   } catch { return 'local-device-session' }
 }

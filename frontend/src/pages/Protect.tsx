@@ -25,6 +25,7 @@ import {
   mergeLandmarks,
   pointOriginOf,
   sanitizeAiPoints,
+  validateRename,
 } from '../lib/landmarks'
 import { decodeToPixels } from '../lib/redact'
 import { mergeRectsToMask } from '../lib/segment'
@@ -481,26 +482,18 @@ export function Protect() {
   }
 
   function renamePoint(name: string, next: string) {
-    const cleaned = next.trim().replace(/\s+/g, ' ')
-    if (!cleaned || cleaned === name) return
-    if (cleaned.length > 80) {
-      setError('That label is too long.')
+    const checked = validateRename(graph, name, next)
+    if (!checked.ok) {
+      setError(checked.error)
       return
     }
-    if (['person', 'face', 'body', 'hair', 'skin', 'clothes', 'head'].includes(cleaned.toLowerCase())) {
-      setError('People are never reference points. Pick a background label.')
-      return
-    }
-    if (graph.room_objects.some((item) => item.name.toLowerCase() === cleaned.toLowerCase())) {
-      setError(`“${cleaned}” is already used. Pick a different label.`)
-      return
-    }
+    if (checked.name === name) return
     setError('')
-    setNotice(`Relabeled “${name}” as “${cleaned}” and marked it reviewed.`)
+    setNotice(`Relabeled “${name}” as “${checked.name}” and marked it reviewed.`)
     setGraph((current) => ({
       ...current,
       room_objects: current.room_objects.map((item) =>
-        item.name === name ? { ...item, name: cleaned, confirmed: true } : item,
+        item.name === name ? { ...item, name: checked.name, confirmed: true } : item,
       ),
     }))
   }

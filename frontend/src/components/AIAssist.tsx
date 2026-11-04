@@ -107,10 +107,10 @@ export function AIAssist({ file, mask, ready, blockedReason, ctaLabel, onGraph, 
       )}
       {status === 'ready' && (
         <>
-          <p className="muted">The masked photo is redacted on this device, then sent to the local backend for model analysis. The person area stays covered. Suggestions arrive unconfirmed — review each one below.</p>
+          <p className="muted">The photo is downscaled, stripped of metadata, and masked in this browser. With your consent, that redacted copy passes through the local backend to the configured Meta/Muse model provider. The backend holds it in memory for the request; provider retention is not verified by Stillpoint. The mask cannot guarantee anonymity. Suggestions arrive unconfirmed — review each one below.</p>
           <label className="checkline">
             <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-            <span>I consent to sending this redacted photo for model analysis. I understand backgrounds and other details may still be identifying. This consent covers this photo and current mask only.</span>
+            <span>I consent to sending this redacted photo to the configured model provider for analysis. Backgrounds and other details may still identify someone. This consent covers this photo and current mask only.</span>
           </label>
           {blockedReason && <p className="note">{blockedReason}</p>}
           <div className="actions">

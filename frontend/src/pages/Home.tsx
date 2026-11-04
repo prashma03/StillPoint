@@ -7,10 +7,10 @@ import { Button, usePageTitle, useReducedMotion } from '../components/ui'
 import { EvidenceDiagram } from '../components/EvidenceDiagram'
 
 const scenes = [
-  { id: 'intro', label: 'Introduction' },
-  { id: 'geometry', label: 'Geometry' },
-  { id: 'alignment', label: 'Alignment' },
-  { id: 'evidence', label: 'Evidence' },
+  { id: 'intro' },
+  { id: 'geometry' },
+  { id: 'alignment' },
+  { id: 'evidence' },
 ]
 
 export function Home() {
@@ -46,36 +46,17 @@ export function Home() {
       }
       setScene((current) => (current === next ? current : next))
     }
-    const onKey = (event: KeyboardEvent) => {
-      const target = event.target
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return
-      if (event.key >= '1' && event.key <= '4') {
-        document.getElementById(scenes[Number(event.key) - 1].id)?.scrollIntoView({
-          behavior: reduced ? 'auto' : 'smooth',
-          block: 'start',
-        })
-      }
-    }
     onScroll()
     window.addEventListener('pointermove', onMove, { passive: true })
     window.addEventListener('scroll', onScroll, { passive: true })
-    window.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('scroll', onScroll)
-      window.removeEventListener('keydown', onKey)
       homeView.alignAt = 0
       homeView.holdAlign = false
       homeView.story = 0
     }
   }, [reduced])
-
-  function jump(index: number) {
-    document.getElementById(scenes[index].id)?.scrollIntoView({
-      behavior: reduced ? 'auto' : 'smooth',
-      block: 'start',
-    })
-  }
 
   function align() {
     homeView.holdStory = homeView.story
@@ -107,13 +88,6 @@ export function Home() {
           }}
         />
       </div>
-      <nav className="scene-nav" aria-label="Scenes">
-        {scenes.map((item, index) => (
-          <button key={item.id} className="scene-btn" type="button" aria-current={scene === index ? 'true' : undefined} aria-label={item.label} onClick={() => jump(index)}>
-            {String(index + 1).padStart(2, '0')}
-          </button>
-        ))}
-      </nav>
       {scene < 3 && (
         <button className="btn btn-secondary align-btn" type="button" aria-pressed={aligning} onClick={align}>
           {aligning ? 'Aligning' : 'Align viewpoint'}
@@ -127,13 +101,14 @@ export function Home() {
 
       <section className="home-scene" id="intro" data-scene-index="0">
         <div className="scene-copy">
-          <p className="demo-tag">Illustrative demonstration</p>
-          <h1 className="display">Proof without seeing.</h1>
-          <p className="lede">Check whether an altered image may have come from your original photo—without exposing the person in it.</p>
+          <p className="demo-tag">Private verification · no account required</p>
+          <h1 className="display">Your evidence. Your control.</h1>
+          <p className="lede">Explore whether two images share visual evidence. Start as a guest; no identity or account is needed for a comparison.</p>
           <div className="actions" style={{ marginTop: 22 }}>
-            <Button to="/check">Check a suspicious photo</Button>
-            <Button to="/protect" variant="secondary">Protect a photo</Button>
+            <Button to="/check">Start Private Verification</Button>
+            <a className="btn btn-secondary" href="#geometry">How Stillpoint Works</a>
           </div>
+          <p className="home-privacy-note">Images are processed in your browser for comparisons. Optional AI mapping sends the explicitly consented, redacted image to the configured model provider; its retention terms are outside this app.</p>
           <label className="look-control">
             Viewpoint
             <input

@@ -73,7 +73,7 @@ export function StillpointGuide() {
         <div><h2 id="guide-title">Stillpoint Guide</h2><span className={`guide-mode${available === false ? ' guide-offline' : ''}`}><i />{available === null ? 'Connecting…' : available ? 'AI connected' : 'AI unavailable'}</span></div>
         <button className="guide-close" onClick={() => setOpen(false)} aria-label="Close Stillpoint Guide">×</button>
       </header>
-      <div className="guide-privacy">Text only · no images, evidence, or case details are shared.</div>
+      <div className="guide-privacy">Only your chat text and current page label are sent. Don’t include private details.</div>
       <div className="guide-messages" ref={listRef} aria-live="polite" aria-relevant="additions text">
         {messages.length === 0 && <div className="guide-message guide-guide">{available === false ? 'The conversational AI is unavailable right now. Start the local backend and configure its model API key to chat.' : 'Hi, I’m the Stillpoint Guide. What’s on your mind?'}</div>}
         {messages.map((message) => <div className={`guide-message guide-${message.from}`} key={message.id}>{message.text}</div>)}

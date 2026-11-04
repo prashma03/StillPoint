@@ -16,6 +16,7 @@ import {
   maskSignature,
   mergeLandmarks,
   sanitizeAiPoints,
+  validateRename,
 } from './landmarks'
 import { present } from './present'
 import { sampleDerivative, sampleMoved, sampleOriginal } from './samples'
@@ -227,6 +228,28 @@ describe('landmark sanitize and merge (AI suggestions never overwrite)', () => {
     )
     expect(spread).toHaveLength(1)
     expect(spread[0].message).toMatch(/Ready to continue/)
+  })
+})
+
+describe('landmark relabeling', () => {
+  const graph = { room_objects: [point('bed', 120, 450), point('door', 750, 200)] }
+
+  it('accepts a fresh label and keeps the identity otherwise', () => {
+    expect(validateRename(graph, 'bed', '  window ')).toEqual({ ok: true, name: 'window' })
+    expect(validateRename(graph, 'bed', 'bed')).toEqual({ ok: true, name: 'bed' })
+  })
+
+  it('refuses person names, duplicates, and empty labels', () => {
+    expect(validateRename(graph, 'bed', 'Face')).toEqual({
+      ok: false,
+      error: 'People are never reference points. Pick a background label.',
+    })
+    const dupe = validateRename(graph, 'bed', 'door')
+    expect(dupe.ok).toBe(false)
+    if (dupe.ok) return
+    expect(dupe.error).toMatch(/already used/)
+    expect(validateRename(graph, 'bed', '   ').ok).toBe(false)
+    expect(validateRename(graph, 'bed', 'x'.repeat(81)).ok).toBe(false)
   })
 })
 

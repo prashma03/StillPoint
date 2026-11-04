@@ -9,7 +9,7 @@ const links = [
   { to: '/settings', label: 'Settings' },
 ]
 
-export function TopBar({ demoAuthEnabled = false }: { demoAuthEnabled?: boolean }) {
+export function TopBar() {
   return (
     <header className="topbar">
       <Link className="brand" to="/" aria-label="Stillpoint, home">
@@ -27,7 +27,7 @@ export function TopBar({ demoAuthEnabled = false }: { demoAuthEnabled?: boolean 
         <NavLink className="btn btn-primary header-check" to="/check">
           Check
         </NavLink>
-        {demoAuthEnabled && <NavLink className="icon-btn" to="/logout" aria-label="Log out" title="Log out">↗</NavLink>}
+        <NavLink className="header-signin" to="/login">Sign in</NavLink>
         <NavLink className="icon-btn" to="/settings" aria-label="Settings">
           <SettingsIcon />
         </NavLink>

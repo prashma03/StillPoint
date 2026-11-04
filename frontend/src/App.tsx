@@ -16,23 +16,21 @@ import { StillpointGuide } from './components/StillpointGuide'
 import { AuthPage } from './pages/Auth'
 
 export function App() {
-  const demoAuthEnabled = import.meta.env.DEV && import.meta.env.VITE_DEMO_AUTH === 'true'
   return (
     <CaseProvider>
       <a className="skip" href="#content">Skip to content</a>
-      {demoAuthEnabled ? <Routes>
+      <Routes>
         <Route path="/login" element={<AuthPage mode="login" />} />
         <Route path="/signup" element={<AuthPage mode="signup" />} />
-        <Route path="/logout" element={<AuthPage mode="login" loggedOut />} />
-        <Route path="*" element={<ApplicationShell demoAuthEnabled />} />
-      </Routes> : <Routes><Route path="*" element={<ApplicationShell demoAuthEnabled={false} />} /></Routes>}
+        <Route path="*" element={<ApplicationShell />} />
+      </Routes>
     </CaseProvider>
   )
 }
 
-function ApplicationShell({ demoAuthEnabled }: { demoAuthEnabled: boolean }) {
+function ApplicationShell() {
   return <>
-    <TopBar demoAuthEnabled={demoAuthEnabled} />
+    <TopBar />
     <Stage />
     <TabBar />
     <StillpointGuide />
