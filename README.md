@@ -92,6 +92,7 @@ python eval/killtest.py
 Optional local backend (AI-assisted mapping, Guide chat, Python cross-check):
 
 ```text
+python -m pip install -r backend/requirements.txt  # SAM 3.1 pixel-mask decoder
 python -m backend.server   # listens on http://127.0.0.1:8787
 ```
 
@@ -281,3 +282,174 @@ sample pair; no such run or real-photo accuracy claim is made.
 
 Run `python -m unittest backend.test_discover backend.test_chat`, the existing
 `eval` suites, and `cd frontend && npm test` / `npm run build`.
+
+## Guided Check photo workflow
+
+Check now offers Upload Images, Protect Privacy, Review Features, Analyze,
+and Explore Proof. Guests can supply two JPEG/PNG/WebP photographs (20 MB each)
+without JSON or a registered original. File bytes must decode successfully.
+The previous Check interface is preserved under Advanced Tools, including
+scene-graph imports, manual mapping, optional consented model services, and
+Python cross-checking. Samples remain explicitly synthetic.
+
+The photo workflow reuses the existing browser decoding, Harris response,
+coordinate engine, redaction, session reports, and Proof diagram. Its new
+experimental local matcher chooses separated Harris corners, compares
+mean-centered normalized 8x8 grayscale patch descriptors, and retains mutual
+nearest neighbors only when squared descriptor distance <= 0.18 and the
+best/second-best distance ratio < 0.65. These are engineering thresholds,
+not calibrated probabilities or forensic validation. At most 24 pairs are
+proposed. Inputs are downscaled to at most 640 pixels for feature search.
+No model key, network image upload, object classifier, fitted homography,
+rotation invariance, or camera reconstruction is required or claimed.
+
+Both images support multiple rectangular privacy covers. Covered pixels are
+zeroed before corner/descriptor extraction, and patches crossing covers are
+excluded. After editing, all feature regions intersecting any cover are
+excluded again before the existing coordinate-distance engine runs. The
+original files are never overwritten. Proof uses separate metadata-stripped
+JPEG previews with every selected cover painted opaque. Features can be
+selected, moved numerically, added by click or keyboard controls, removed,
+and undone; resetting suggestions reruns the actual local matcher. User edits
+are the inputs to the comparison, not decorative overlays. No-feature cases
+produce Cannot determine instead of fabricated points.
+
+Blind Mode starts on independently of previous settings. The suspicious
+image is never rendered in the guided workflow without turning Blind Mode
+off AND explicitly acknowledging viewing. Local processing works while it
+is concealed, but the app explains that concealed masks and feature proposals
+cannot be visually confirmed. Proof requires its own viewing choice if the
+user has not already acknowledged viewing. Optional person detection is
+clearly separated and retains its existing external-provider consent.
+It must not be used to submit intimate imagery. No images leave the device
+in the local feature workflow. An enabled Python cross-check sends graphs
+only to the local backend.
+
+Files and redacted Proof blobs live only in JavaScript memory. Returning from
+Proof restores the in-progress Check session. Refresh or closing the tab
+clears files; the existing redacted result record can survive refresh in
+sessionStorage. Delete images/start over clears draft, media, and result;
+Settings also offers deletion of temporary comparison images. Object URLs
+are revoked when previews change or unmount. Creating a new result or editing
+features invalidates previous result/media associations. There is no account
+provider, image server, or shared cross-user image store.
+
+Proof receives actual coordinate residuals and shows temporary redacted
+photographs with corresponding point/line overlays when both previews are
+available and viewing is authorized. Cyan indicates aligned coordinates;
+coral indicates coordinates outside the threshold. The existing scene-map
+view and explicitly simulated educational 3D room remain separate.
+
+Validation: generated non-sensitive textured pixel pairs with a harmless
+edit exercise real local detection, descriptor matching, the comparison
+engine, and report creation. Tests cover mask invariance, exclusion after
+edits, flat/empty inputs, unsupported/oversized files, edited geometry,
+draft/media deletion, route content, concealed previews, and unavailable
+model paths in existing backend tests. These generated fixtures are NOT an
+ordinary-photo accuracy study. Interactive browser verification could not
+complete because desktop automation app approval timed out. No authenticated
+external model request or real-photo accuracy claim is made.
+
+## Entrance and email/password authentication
+
+New visitors now see a full-screen Stillpoint poster and **Enter Stillpoint**.
+Nothing plays on load. Enter starts a 6.5-second CSS introduction, or an
+app-hosted video if configured. Skip Intro is always available during playback;
+video errors/stalls expose Continue. Reduced-motion users get a static, brief
+transition (and configured video playback is skipped). No video asset exists in
+this repository; the CSS fallback is the shipped introduction, not a fabricated
+video. Provide a 5–8 second asset under `frontend/public/media/` and set, for
+example, `VITE_INTRO_VIDEO_URL=/media/stillpoint-intro.mp4` to enable the player.
+The video is muted, inline, and starts at zero only from the Enter gesture.
+
+Authentication uses the official `@supabase/supabase-js` client and Supabase Auth,
+not a new password database in the Python image backend. Supabase handles
+server-side credential validation, password hashing, login/refresh tokens,
+email confirmation, recovery emails, and rate limiting. The application contains
+working calls for signInWithPassword, signUp, resetPasswordForEmail, updateUser,
+getUser, automatic refresh, and current-session signOut. Provider errors never
+become successful logins. Missing configuration disables account submission
+while keeping Continue as Guest available.
+
+Setup:
+1. Create/configure a Supabase project with the Email provider enabled.
+2. Copy `frontend/.env.example` to `frontend/.env.local` and set
+   `VITE_SUPABASE_URL` (HTTPS project URL) and `VITE_SUPABASE_ANON_KEY`
+   (public publishable/anon key). Restart Vite. NEVER put a service-role key,
+   secret key, SMTP credential, or database password in a VITE variable.
+3. Configure the project's Site URL and redirect allowlist for the frontend's
+   actual origin, including `/auth/callback**` and `/auth/reset**`. Development
+   ports can change, so configure the port actually used. Production must use
+   HTTPS and route SPA paths back to index.html.
+4. Configure and verify Supabase's email delivery/SMTP for real recipients.
+   Confirmation and password-reset delivery are not enabled merely by adding
+   a public project key. Provider email restrictions and rate limits still apply.
+5. Align Supabase's server-side password policy with the UI's 12-character
+   minimum; configure additional provider protections as needed.
+
+PKCE email confirmation/recovery links must be opened in the originating tab,
+where the code verifier lives. The SDK exchanges the code; returning sessions
+are verified with getUser before the app is displayed. A valid recovery event
+is required for the password-reset form. After updating the password, this
+implementation signs out that recovered session and asks for a fresh login.
+Logout clears local access and asks Supabase to revoke the current session's
+refresh credentials; already-issued JWT access tokens have the provider's
+normal validity until expiry. Authentication tokens are stored in sessionStorage,
+not plaintext passwords or localStorage. This is a browser SDK session, not an
+HttpOnly server-cookie implementation. Closing the tab ends local persistence;
+returning authenticated sessions within the tab bypass the entrance.
+
+No private photos are sent to Supabase, and no comparison or uploaded photograph
+is automatically attached to an account. The project still has no cloud photo
+vault. Signing in, signing out, or changing identity clears local comparison
+files, Proof media, maps, notes, and Protect drafts; no silent guest-data migration
+occurs. The app context is remounted for the new identity and stale comparison
+callbacks cannot save into its result context. Intended internal destinations
+are preserved and external redirect targets rejected. Guest access stays local
+and requires no registration. The existing route scroll manager remains active.
+
+No Supabase configuration or email credentials were present during implementation.
+Consequently live signup, email delivery, login, reset, and token revocation
+have NOT been authenticated against a real project. Automated DOM tests use
+explicit provider fixtures to exercise the integration and UI; they never
+create real accounts or send emails. Tests cover no autoplay, user-triggered
+playback, skip, completion, errors, reduced motion, login/signup successes and
+failures, confirmation-required responses, reset authorization, guest access,
+returning sessions, logout, isolation, and navigation through existing pages.
+Responsive CSS covers mobile and desktop; physical device visual QA was not run.
+
+Official references:
+- https://supabase.com/docs/guides/auth/passwords
+- https://supabase.com/docs/reference/javascript/auth-getuser
+- https://supabase.com/docs/reference/javascript/auth-signout
+- https://supabase.com/docs/guides/auth/rate-limits
+
+Dependency audit currently reports findings in the existing Vitest development
+toolchain (Vitest/mocker/tinypool). They require a separate major-version tooling
+migration; no forced upgrade was applied as part of authentication.
+
+Files for entrance/authentication: `frontend/src/pages/Entrance.tsx`,
+`frontend/src/pages/Auth.tsx`, `frontend/src/components/AuthSession.tsx`,
+`frontend/src/lib/auth.ts`, `frontend/src/lib/accountIsolation.ts`,
+`frontend/src/App.tsx`, `frontend/src/components/Nav.tsx`,
+`frontend/src/components/case.tsx`, `frontend/src/lib/storage.ts`,
+`frontend/src/lib/discover.ts`, `frontend/src/styles.css`,
+`frontend/.env.example`, `frontend/package.json`, `frontend/package-lock.json`,
+`frontend/src/lib/auth.test.ts`,
+`frontend/src/pages/__tests__/Entrance.test.tsx`,
+`frontend/src/pages/__tests__/AuthJourney.test.tsx`,
+`frontend/src/pages/__tests__/AppEntrance.test.tsx`, and this README.
+
+## Reopening starts a fresh image session
+
+On every full frontend load (including refresh or a browser-restored app),
+Stillpoint clears protected maps, Protect drafts, previous comparison reports,
+private review notes, temporary Check photos, redacted Proof previews, and
+Discover handoffs before React renders. This also removes legacy copies from
+localStorage, preventing old image-related records from being migrated back.
+Authentication, guest access, and display preferences remain separate.
+Ordinary in-app page navigation continues to preserve the current comparison.
+This startup rule applies to all users for now: account-backed saving must be
+implemented explicitly in the future, and is not enabled merely by logging in.
+This startup rule supersedes earlier descriptions of drafts/reports surviving
+refresh elsewhere in this document.

@@ -193,6 +193,17 @@ let localScenes: ReturnType<typeof createSceneStore> | null = null
 let localSettings: ReturnType<typeof createSettingsStore> | null = null
 let localReviews: ReturnType<typeof createReviewStore> | null = null
 
+/** Identity boundaries never migrate guest records into a different account. */
+export function resetPrivateStores() {
+  localScenes?.clear()
+  localReviews?.clear()
+  for (const memory of [browserMemory(), browserSessionMemory()]) {
+    for (const key of [SCENES, REVIEWS, CASE, 'stillpoint.protect.draft.v1']) memory?.removeItem(key)
+  }
+  localScenes = null
+  localReviews = null
+}
+
 export function sceneStore() {
   if (!localScenes) localScenes = createSceneStore(guestSessionMemory(SCENES))
   return localScenes

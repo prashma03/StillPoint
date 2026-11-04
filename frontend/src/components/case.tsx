@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { clearCaseRaw, loadCaseRaw, saveCaseRaw, sessionMemory } from '../lib/storage'
 import type { CaseRecord } from '../lib/types'
 
@@ -22,7 +22,10 @@ function readSession(): CaseRecord | null {
 
 export function CaseProvider({ children }: { children: ReactNode }) {
   const [record, setState] = useState<CaseRecord | null>(readSession)
+  const active = useRef(true)
+  useEffect(() => { active.current = true; return () => { active.current = false } }, [])
   function setRecord(next: CaseRecord | null) {
+    if (!active.current) return // A previous identity's pending comparison cannot write into the new session.
     setState(next)
     const memory = sessionMemory()
     if (!memory) return

@@ -10,6 +10,8 @@
  * user draws a mask.
  */
 import type { Mask } from './types'
+import type { SegmentMask } from './ai'
+import type { PixelMask } from './checkSession'
 
 export type PersonRect = { x: number; y: number; width: number; height: number }
 
@@ -69,4 +71,25 @@ export function mergeRectsToMask(rects: PersonRect[]): Mask | null {
   const bottom = Math.min(1000, Math.max(...sane.map((rect) => rect.y + rect.height)))
   if (right <= left || bottom <= top) return null
   return { x: left / 1000, y: top / 1000, w: (right - left) / 1000, h: (bottom - top) / 1000 }
+}
+
+const MAX_MASK_SIDE = 1400
+export function emptyPixelMask(width: number, height: number): PixelMask {
+  const scale = Math.min(1, MAX_MASK_SIDE / Math.max(width, height))
+  const w = Math.max(1, Math.round(width * scale)), h = Math.max(1, Math.round(height * scale))
+  return { width: w, height: h, data: new Uint8Array(w * h) }
+}
+
+/** Project SAM's per-person binary rasters into one image-aligned mask. */
+export function combineSegmentMasks(width: number, height: number, regions: SegmentMask[]): PixelMask {
+  const output = emptyPixelMask(width, height)
+  for (const region of regions) for (let y = 0; y < region.height; y++) for (let x = 0; x < region.width; x++) {
+    if (!region.data[y * region.width + x]) continue
+    const left = Math.max(0, Math.floor((region.left + x / region.width * region.boxWidth) / width * output.width))
+    const right = Math.min(output.width, Math.ceil((region.left + (x + 1) / region.width * region.boxWidth) / width * output.width))
+    const top = Math.max(0, Math.floor((region.top + y / region.height * region.boxHeight) / height * output.height))
+    const bottom = Math.min(output.height, Math.ceil((region.top + (y + 1) / region.height * region.boxHeight) / height * output.height))
+    for (let targetY = top; targetY < bottom; targetY++) for (let targetX = left; targetX < right; targetX++) output.data[targetY * output.width + targetX] = 1
+  }
+  return output
 }

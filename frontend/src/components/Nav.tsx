@@ -1,5 +1,7 @@
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Mark } from './ui'
+import { useAuthSession } from './AuthSession'
+import { useState } from 'react'
 
 const links = [
   { to: '/discover', label: 'Discover' },
@@ -11,6 +13,8 @@ const links = [
 ]
 
 export function TopBar() {
+  const auth = useAuthSession(), navigate = useNavigate(), { pathname, search } = useLocation()
+  const [signingOut, setSigningOut] = useState(false)
   return (
     <header className="topbar">
       <Link className="brand" to="/" aria-label="Stillpoint, home">
@@ -28,7 +32,11 @@ export function TopBar() {
         <NavLink className="btn btn-primary header-check" to="/check">
           Check
         </NavLink>
-        <NavLink className="header-signin" to="/login">Sign in</NavLink>
+        {auth.user ? <button className="header-signin auth-logout" disabled={signingOut} onClick={() => {
+          setSigningOut(true)
+          void auth.logout().then(ok => { if (ok) navigate('/login', { replace: true }) }).finally(() => setSigningOut(false))
+        }}>{signingOut ? 'Logging out…' : 'Log Out'}</button> : <NavLink className="header-signin" to={`/login?next=${encodeURIComponent(pathname + search)}`}>Sign in</NavLink>}
+        {auth.error && <span role="alert" className="error auth-nav-error">{auth.error}</span>}
         <NavLink className="icon-btn" to="/settings" aria-label="Settings">
           <SettingsIcon />
         </NavLink>

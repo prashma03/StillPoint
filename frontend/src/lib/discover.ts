@@ -12,7 +12,7 @@ export type DiscoverStatus = { provider: string; configured: boolean; sources: s
 export type DiscoveryHandoff = { sceneId: string; candidate: Candidate }
 // Memory-only metadata transfer. Never persist candidate images or original pixels.
 let handoff: DiscoveryHandoff | null = null
-export function setDiscoveryHandoff(value: DiscoveryHandoff) { handoff = value }
+export function setDiscoveryHandoff(value: DiscoveryHandoff | null) { handoff = value }
 export function takeDiscoveryHandoff() { return handoff }
 
 export function safeLink(value: string | null): string | undefined {

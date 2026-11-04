@@ -945,6 +945,18 @@ export function Protect() {
                 Mapped {hasAi ? 'with AI assistance' : 'by hand'}
                 {hasAi && model ? ` (${model})` : ''}. A background match alone never proves who is in a photo.
               </p>
+              {!imported && (
+                <section className="ai-shield panel" aria-labelledby="ai-shield-title">
+                  <span className="eyebrow">Experimental · unavailable</span>
+                  <h2 id="ai-shield-title">AI Shield</h2>
+                  <p className="muted">Add an experimental protective layer to your photograph before sharing it.</p>
+                  {preview && <div className="ai-shield-preview"><img src={preview} alt="Original photograph; no shield has been applied" /><span>Original photo</span></div>}
+                  <p className="note" role="status">AI Shield is not available in this environment.</p>
+                  <p className="muted">Stillpoint has no installed PhotoGuard or comparable image-specific adversarial pipeline, target image-editing model, or model weights. No image is processed or sent for this feature. The original stays unchanged and is never silently registered by AI Shield.</p>
+                  <Button disabled>Apply AI Shield</Button>
+                  <p className="muted">Research reference: <a href="https://arxiv.org/abs/2302.06588" target="_blank" rel="noreferrer">PhotoGuard: Raising the Cost of Malicious AI-Powered Image Editing</a>. Published methods target particular image-editing models and do not guarantee protection. This research addresses editing behavior, not model training or identity imitation.</p>
+                </section>
+              )}
               <ObjectList graph={graph} editable canSnap={false} onRemove={removePoint} onRename={renamePoint} onConfirm={confirmPoint} onConfirmAll={confirmAll} onSnap={snapPoint} onSnapAll={snapAll} />
               <h2>What is kept on this device</h2>
               <ul className="limits">

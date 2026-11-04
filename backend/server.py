@@ -9,9 +9,8 @@
   configured API key it refuses with an explicit error. It never invents
   a graph.
 - ``POST /api/segment`` accepts one photograph (data URL) plus an explicit
-  consent flag, and returns coarse person rectangles from the segmentation
-  model. Pixel masks are discarded: only rectangles leave this process.
-  The caller must show the suggestion for human review and correction.
+  consent flag and returns SAM 3.1 pixel masks and coarse compatibility boxes.
+  The caller must show the mask for human review and correction.
 - ``POST /api/chat`` accepts text-only conversation messages plus a page
   label, and returns a model reply for the Stillpoint Guide. Image fields
   are never read here, and messages matching the credential pattern are
@@ -52,6 +51,15 @@ from backend.meta_client import (
     segment_people,
 )
 from backend.sam_parse import SegmentationError, coarse_person_rects
+
+try:
+    from meta_sam_parser import (
+        CompletedOutcome,
+        decode_mask_to_raster,
+        image_segmentation_format,
+    )
+except ImportError:  # The segmentation endpoint reports an actionable error when omitted.
+    CompletedOutcome = decode_mask_to_raster = image_segmentation_format = None
 from backend.validate import validate_graph
 
 HOST = "127.0.0.1"
@@ -465,12 +473,35 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         try:
+            if image_segmentation_format is None:
+                self._send(503, {"error": "segment_decoder_missing", "message": "Install backend/requirements.txt to decode pixel-level SAM masks."})
+                return
             data_url = (
                 f"data:{mime};base64,"
                 + base64.b64encode(raw_image).decode("ascii")
             )
             text = segment_people(data_url)
             rects = coarse_person_rects(text)
+            parser = image_segmentation_format().create_parser()
+            parser.push(text)
+            parsed = parser.finish(CompletedOutcome()).result
+            masks = []
+            for record in parsed.records:
+                if getattr(record, "kind", None) != "mask":
+                    continue
+                raster = decode_mask_to_raster(record.mask)
+                bounds = record.bounds
+                masks.append({
+                    "width": record.mask.width,
+                    "height": record.mask.height,
+                    "left": bounds.left,
+                    "top": bounds.top,
+                    "boxWidth": bounds.right - bounds.left,
+                    "boxHeight": bounds.bottom - bounds.top,
+                    "data": list(raster),
+                })
+            if text.strip() and not masks:
+                raise SegmentationError("The model output contained no decodable pixel masks.")
         except MetaAPIError as exc:
             self._send(502, {"error": exc.code, "message": str(exc)})
             return
@@ -483,7 +514,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send(
             200,
-            {"rects": rects, "count": len(rects), "model": SEG_MODEL},
+            {"rects": rects, "masks": masks, "count": len(masks), "model": SEG_MODEL},
         )
 
     def _handle_chat(self):

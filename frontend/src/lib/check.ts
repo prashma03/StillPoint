@@ -5,6 +5,7 @@ import { present } from './present'
 import type { CaseRecord, MappingOrigin, Mask, SceneGraph, StageUpdate } from './types'
 
 export type CheckInput = {
+  allowEmpty?: boolean
   source: SceneGraph | null
   suspect: SceneGraph | null
   sourceLabel: string
@@ -64,8 +65,10 @@ export async function runCheck(input: CheckInput, onStage: (stage: StageUpdate) 
     detail: 'Removing person-named objects and any reference point inside the mask.',
   })
   await waitFrame()
-  const source = readGraph(input.source)
-  const suspect = readGraph(input.suspect)
+  const read = (graph: SceneGraph) => input.allowEmpty && graph.room_objects.length === 0
+    ? { ok: true as const, graph, excludedPeople: 0 } : readGraph(graph)
+  const source = read(input.source)
+  const suspect = read(input.suspect)
   if (!source.ok || !suspect.ok) {
     return { ok: false, reason: 'One of the scene graphs could not be read.' }
   }

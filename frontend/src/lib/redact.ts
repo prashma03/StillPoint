@@ -88,7 +88,8 @@ export async function decodeToPixels(
  */
 export async function redactImage(
   file: Blob,
-  mask: { x: number; y: number; w: number; h: number } | null,
+  mask: { x: number; y: number; w: number; h: number } | { x: number; y: number; w: number; h: number }[] | null,
+  pixelMask?: { width: number; height: number; data: Uint8Array } | null,
 ): Promise<{ dataUrl: string; width: number; height: number }> {
   const bitmap = await loadBitmap(file)
   try {
@@ -100,10 +101,21 @@ export async function redactImage(
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('This browser cannot process the image.')
     ctx.drawImage(bitmap, 0, 0, w, h)
-    if (mask) {
-      const rect = maskToPixels(mask, w, h)
+    for (const cover of (Array.isArray(mask) ? mask : mask ? [mask] : [])) {
+      const rect = maskToPixels(cover, w, h)
       ctx.fillStyle = '#000000'
       ctx.fillRect(rect.x, rect.y, rect.w, rect.h)
+    }
+    if (pixelMask && pixelMask.data.length === pixelMask.width * pixelMask.height) {
+      const layer = document.createElement('canvas')
+      layer.width = pixelMask.width; layer.height = pixelMask.height
+      const layerContext = layer.getContext('2d')
+      if (!layerContext) throw new Error('This browser cannot apply the confirmed person mask.')
+      const pixels = layerContext.createImageData(pixelMask.width, pixelMask.height)
+      for (let i = 0; i < pixelMask.data.length; i++) if (pixelMask.data[i]) { const offset = i * 4; pixels.data[offset] = 0; pixels.data[offset + 1] = 0; pixels.data[offset + 2] = 0; pixels.data[offset + 3] = 255 }
+      layerContext.putImageData(pixels, 0, 0)
+      ctx.drawImage(layer, 0, 0, w, h)
+      layer.width = 0; layer.height = 0
     }
     const dataUrl = canvas.toDataURL('image/jpeg', REDACT_QUALITY)
     canvas.width = 0

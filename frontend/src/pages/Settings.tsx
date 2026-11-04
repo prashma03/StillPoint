@@ -2,8 +2,11 @@
 import { Button, Dialog, PageHeader, usePageTitle } from '../components/ui'
 import { reviewStore, sceneStore, settingsStore } from '../lib/storage'
 import type { Settings as SettingsShape } from '../lib/types'
+import { clearCheckSession } from '../lib/checkSession'
+import { useCaseRecord } from '../components/case'
 
 export function Settings() {
+  const { setRecord } = useCaseRecord()
   usePageTitle('Settings')
   const [settings, setSettings] = useState<SettingsShape>(() => settingsStore().load())
   const [scenes, setScenes] = useState(() => sceneStore().list().length)
@@ -83,6 +86,7 @@ export function Settings() {
         <div className="actions">
           <Button onClick={() => setOpen(true)}>Delete saved scene graphs</Button>
           <Button variant="secondary" onClick={clearNotes}>Delete private notes</Button>
+          <Button variant="secondary" onClick={() => { clearCheckSession(); setRecord(null); setMessage('Temporary Check photographs, redacted Proof previews, and comparison results were cleared from this tab.') }}>Delete temporary comparison images</Button>
         </div>
         </section>
         <section className="settings-section settings-about"><p className="eyebrow">04 · Application information</p><h2>Stillpoint, in this build</h2><p className="muted">Room scan, sealed identity verification, external identity checks, and a connected reviewer service are not available. AI mapping is optional; manual mapping remains available.</p></section>

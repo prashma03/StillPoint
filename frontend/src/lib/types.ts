@@ -84,7 +84,7 @@ export type Mask = {
   h: number
 }
 
-export type MappingOrigin = 'manual' | 'ai-assist'
+export type MappingOrigin = 'manual' | 'ai-assist' | 'local'
 
 export type StoredScene = {
   id: string
@@ -100,6 +100,7 @@ export type StoredScene = {
 }
 
 export type CaseRecord = {
+  photoMethod?: string
   discovery?: { provider: 'TinEye'; domain: string; sourceLinks: string[]; providerRelevance: number | null }
   id: string
   createdAt: string

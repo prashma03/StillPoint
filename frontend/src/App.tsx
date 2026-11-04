@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { CaseProvider } from './components/case'
 import { TabBar, TopBar } from './components/Nav'
 import { Check } from './pages/Check'
@@ -16,19 +16,39 @@ import { Button } from './components/ui'
 import { StillpointGuide } from './components/StillpointGuide'
 import { AuthPage } from './pages/Auth'
 import { RouteScroll } from './components/RouteScroll'
+import { AuthProvider, useAuthSession } from './components/AuthSession'
+import { Entrance } from './pages/Entrance'
+import { INTRO_KEY, safeDestination, tabStorage } from './lib/auth'
 
 export function App() {
+  return <AuthProvider><SessionApplication /></AuthProvider>
+}
+
+function SessionApplication() {
+  const auth = useAuthSession()
   return (
-    <CaseProvider>
+    <CaseProvider key={`${auth.revision}:${auth.user?.id ?? 'guest'}`}>
       <RouteScroll />
       <a className="skip" href="#content">Skip to content</a>
       <Routes>
         <Route path="/login" element={<AuthPage mode="login" />} />
         <Route path="/signup" element={<AuthPage mode="signup" />} />
-        <Route path="*" element={<ApplicationShell />} />
+        <Route path="/auth/reset" element={<AuthPage mode="reset" />} />
+        <Route path="/auth/callback" element={<AuthPage mode="login" />} />
+        <Route path="*" element={<AccessGate />} />
       </Routes>
     </CaseProvider>
   )
+}
+
+function AccessGate() {
+  const auth = useAuthSession(), location = useLocation(), navigate = useNavigate()
+  if (auth.loading) return <main className="auth-screen"><p role="status">Checking your account session…</p></main>
+  if (auth.recovery) return <Navigate to="/auth/reset" replace />
+  if (auth.user || auth.guest) return <ApplicationShell />
+  const next = safeDestination(location.pathname + location.search)
+  if (tabStorage.getItem(INTRO_KEY) === 'complete') return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
+  return <Entrance onComplete={() => { tabStorage.setItem(INTRO_KEY, 'complete'); navigate(`/login?next=${encodeURIComponent(next)}`, { replace: true }) }} />
 }
 
 function ApplicationShell() {

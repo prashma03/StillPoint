@@ -42,9 +42,10 @@ export type AIAnalysis =
   | { ok: false; error: string }
 
 export type SegmentRect = { x: number; y: number; width: number; height: number }
+export type SegmentMask = { width: number; height: number; left: number; top: number; boxWidth: number; boxHeight: number; data: number[] }
 
 export type SegmentOutcome =
-  | { ok: true; rects: SegmentRect[]; count: number; model: string }
+  | { ok: true; masks: SegmentMask[]; rects: SegmentRect[]; count: number; model: string }
   | { ok: false; error: string }
 
 export function userSafeError(code: string | undefined, fallback: string, kind: 'scene' | 'segment' = 'scene'): string {
@@ -53,6 +54,8 @@ export function userSafeError(code: string | undefined, fallback: string, kind: 
       return kind === 'segment'
         ? 'Person detection is not configured on this computer. The local backend needs a model API key — draw the mask yourself.'
         : 'AI mapping is not configured on this computer. The local backend needs a model API key — manual mapping below still works.'
+    case 'segment_decoder_missing':
+      return 'The local backend needs the SAM mask decoder. Install the packages in backend/requirements.txt and restart it, or use manual masking.'
     case 'consent_required':
       return 'Consent is required before any image leaves this page.'
     case 'invalid_image':
@@ -123,14 +126,28 @@ export function buildAnalyzeBody(image: string, mask: Mask | null, maxPoints?: n
   return body
 }
 
+function readMasks(value: unknown): SegmentMask[] | null {
+  if (!Array.isArray(value)) return null
+  const masks: SegmentMask[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') return null
+    const mask = item as Record<string, unknown>
+    const coords = [mask.width, mask.height, mask.left, mask.top, mask.boxWidth, mask.boxHeight]
+    if (!coords.every((entry) => typeof entry === 'number' && Number.isInteger(entry) && entry >= 0) || !Array.isArray(mask.data)) return null
+    const width = mask.width as number, height = mask.height as number
+    if (!width || !height || width * height > 4_000_000 || width * height !== mask.data.length || !mask.data.every((bit) => bit === 0 || bit === 1)) return null
+    masks.push({ width, height, left: mask.left as number, top: mask.top as number, boxWidth: mask.boxWidth as number, boxHeight: mask.boxHeight as number, data: mask.data as number[] })
+  }
+  return masks
+}
+
 function readRects(value: unknown): SegmentRect[] | null {
   if (!Array.isArray(value)) return null
   const rects: SegmentRect[] = []
   for (const item of value) {
     if (!item || typeof item !== 'object') return null
     const rect = item as Record<string, unknown>
-    const coords = [rect.x, rect.y, rect.width, rect.height]
-    if (!coords.every((entry) => typeof entry === 'number' && Number.isFinite(entry))) return null
+    if (![rect.x, rect.y, rect.width, rect.height].every(value => typeof value === 'number' && Number.isFinite(value))) return null
     rects.push({ x: rect.x as number, y: rect.y as number, width: rect.width as number, height: rect.height as number })
   }
   return rects
@@ -156,12 +173,14 @@ export async function segmentPhoto(dataUrl: string): Promise<SegmentOutcome> {
     const code = typeof body.error === 'string' ? body.error : undefined
     return { ok: false, error: userSafeError(code, 'Person detection failed. Draw the mask yourself.', 'segment') }
   }
+  const masks = readMasks(body.masks)
   const rects = readRects(body.rects)
-  if (!rects || typeof body.count !== 'number') {
+  if (!masks || !rects || typeof body.count !== 'number' || body.count !== masks.length) {
     return { ok: false, error: userSafeError('invalid_model_output', '', 'segment') }
   }
   return {
     ok: true,
+    masks,
     rects,
     count: body.count,
     model: typeof body.model === 'string' ? body.model : 'unknown',

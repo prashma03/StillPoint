@@ -2,6 +2,7 @@ import { ALIGN_DISTANCE, DERIVATIVE_AGREEMENT, MIN_USABLE_FOR_VERDICT, NO_LINK_A
 import type { AlignResult, CaseRecord, MappingOrigin } from './types'
 
 export function mappingLabel(origin: MappingOrigin | undefined, model: string | null | undefined): string {
+  if (origin === 'local') return 'Experimental local feature proposals with user edits.'
   if (origin === 'ai-assist') return model ? `AI-assisted (${model}).` : 'AI-assisted.'
   if (origin === 'manual') return 'Manual point placement.'
   return 'Not recorded.'
@@ -53,6 +54,7 @@ export function reportText(record: CaseRecord): string {
     `Analyzed: ${record.createdAt}`,
     `Stillpoint version: ${STILLPOINT_VERSION}`,
     `Method: ${METHOD_SUMMARY}`,
+    ...(record.photoMethod ? [`Photo preparation: ${record.photoMethod}`] : []),
     'Provenance: scene-graph proposals may be manual, local edge-region suggestions, or optional AI-assisted mapping. AI-assisted mapping sends the consented redacted image to the configured external model provider; see the mapping fields below.',
     '',
     `Source: ${record.sourceLabel}`,
