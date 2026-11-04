@@ -65,7 +65,7 @@ export function createTrustStore(memory: { getItem(key: string): string | null; 
       let next: TrustState = { ...state, claims: [...state.claims, claim], attempts: [...recent, { ownerId, at: now() }] }
       next = audit(next, claim.id, 'claim-submitted', 'Claim metadata recorded; no image content stored.')
       if (conflicts.length) {
-        next = { ...next, claims: next.claims.map((item) => item.id === claim.id || conflicts.some((old) => old.id === item.id) ? { ...item, outcome: 'Conflicting Claims', state: 'conflict-frozen', conflictsWith: [...new Set([...item.conflictsWith, claim.id, ...conflicts.map((c) => c.id)])] } : item) }
+        next = { ...next, claims: next.claims.map((item) => item.id === claim.id || conflicts.some((old) => old.id === item.id) ? { ...item, outcome: 'Conflicting Claims', state: 'conflict-frozen', conflictsWith: [...new Set([...item.conflictsWith, ...(item.id === claim.id ? conflicts.map((c) => c.id) : [claim.id])])] } : item) }
         next = audit(next, claim.id, 'conflict-detected', 'Automated enforcement frozen pending independent human review.')
         for (const old of conflicts) next = audit(next, old.id, 'conflict-detected', 'A conflicting source registration requires review.')
       }
@@ -75,6 +75,7 @@ export function createTrustStore(memory: { getItem(key: string): string | null; 
     submitAppeal(ownerId: string, claimId: string, kind: TrustAppeal['kind'], text: string) {
       const trimmed = text.trim()
       if (trimmed.length < 5 || trimmed.length > 2000) throw new Error('Enter between 5 and 2,000 characters.')
+      if (/data:(?:image|video)\/|base64,/i.test(trimmed)) throw new Error('Do not attach image or video content to a private response.')
       const state = load()
       const claim = state.claims.find((item) => item.id === claimId && item.ownerId === ownerId)
       if (!claim) throw new Error('Claim not found.')
@@ -96,7 +97,7 @@ export function createTrustStore(memory: { getItem(key: string): string | null; 
       return next.claims.find((item) => item.id === claimId)!.attestations.filter((item) => item.decision === 'approve').length >= 2
     },
     reviewerSummary(ownerId: string) {
-      return load().claims.filter((claim) => claim.ownerId === ownerId && (claim.state === 'conflict-frozen' || claim.state === 'human-review-required')).map(({ id: claimId, outcome, state, createdAt, evidence, conflictsWith, attestations }) => ({ claimId, outcome, state, createdAt, evidence: evidence.map(({ kind, status }) => ({ kind, status })), conflictsWith: conflictsWith.length, approvals: attestations.filter((item) => item.decision === 'approve').length, assigned: claim.assignedReviewerIds.length }))
+      return load().claims.filter((claim) => claim.ownerId === ownerId && (claim.state === 'conflict-frozen' || claim.state === 'human-review-required')).map(({ id: claimId, outcome, state, createdAt, evidence, conflictsWith, attestations, assignedReviewerIds }) => ({ claimId, outcome, state, createdAt, evidence: evidence.map(({ kind, status }) => ({ kind, status })), conflictsWith: conflictsWith.length, approvals: attestations.filter((item) => item.decision === 'approve').length, assigned: assignedReviewerIds.length }))
     },
   }
 }

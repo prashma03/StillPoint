@@ -48,7 +48,7 @@ export function StillpointGuide() {
     setError('')
     setMessages((current) => [...current, { id: counter.current++, from: 'you', text: trimmed }])
     const previousHistory = history.current
-    const nextHistory = [...previousHistory, { role: 'user' as const, content: trimmed }].slice(-20)
+    const nextHistory = [...previousHistory, { role: 'user' as const, content: trimmed }].slice(-19)
     history.current = nextHistory
     setLoading(true)
     const result = await sendGuideMessage(nextHistory, page)
