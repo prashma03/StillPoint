@@ -138,6 +138,37 @@ def _valid_mask(mask):
     return True
 
 
+def _with_request_limits(prompt, max_points, mask):
+    """Append per-request landmark budget and mask bounds to the prompt.
+
+    The model sees a blacked-out rectangle; stating its 0-1000 bounds in
+    words keeps landmark centers out of the masked region and away from
+    its edges. Malformed values fall back to safe defaults.
+    """
+    try:
+        budget = int(max_points) if max_points is not None else 12
+    except (TypeError, ValueError):
+        budget = 12
+    budget = min(24, max(4, budget))
+    suffix = f"\n\nReturn at most {budget} landmarks."
+    if isinstance(mask, dict):
+        try:
+            values = [float(mask.get(key)) for key in ("x", "y", "w", "h")]
+            if all(0 <= value <= 1 for value in values):
+                left = round(values[0] * 1000)
+                top = round(values[1] * 1000)
+                right = round((values[0] + values[2]) * 1000)
+                bottom = round((values[1] + values[3]) * 1000)
+                suffix += (
+                    f" The blacked-out rectangle spans x={left}..{right},"
+                    f" y={top}..{bottom} on the 0-1000 scale. Place no"
+                    " landmark center inside it or within 20 units of its edges."
+                )
+        except (TypeError, ValueError):
+            pass
+    return prompt + suffix
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, status, payload):
         body = json.dumps(payload).encode("utf-8")
@@ -261,6 +292,7 @@ class Handler(BaseHTTPRequestHandler):
                  "message": "The scene-graph prompt is not installed."},
             )
             return
+        prompt = _with_request_limits(prompt, body.get("max_points"), body.get("mask"))
         try:
             # Re-encode from validated bytes so only a supported image is sent.
             data_url = (

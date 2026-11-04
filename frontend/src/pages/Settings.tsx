@@ -1,14 +1,44 @@
 import { useState } from 'react'
 import { Button, Dialog, PageHeader, usePageTitle } from '../components/ui'
+import {
+  checkDraftHasWork,
+  clearCheckDraft,
+  clearProtectDraft,
+  draftHasWork,
+  draftMemory,
+  loadCheckDraft,
+  loadProtectDraft,
+} from '../lib/draft'
+import { photoVault } from '../lib/images'
 import { reviewStore, sceneStore, settingsStore } from '../lib/storage'
 import type { Settings as SettingsShape } from '../lib/types'
+
+type DraftInfo = { label: string; savedAt: string; photo: boolean } | null
+
+function describeDrafts(): { protect: DraftInfo; check: DraftInfo } {
+  const memory = draftMemory()
+  const protect = loadProtectDraft(memory)
+  const check = loadCheckDraft(memory)
+  return {
+    protect:
+      protect && draftHasWork(protect)
+        ? { label: protect.label, savedAt: protect.savedAt, photo: protect.photoVault !== null }
+        : null,
+    check:
+      check && checkDraftHasWork(check)
+        ? { label: check.suspectName ?? 'Untitled check', savedAt: check.savedAt, photo: check.photoVault !== null }
+        : null,
+  }
+}
 
 export function Settings() {
   usePageTitle('Settings')
   const [settings, setSettings] = useState<SettingsShape>(() => settingsStore().load())
   const [scenes, setScenes] = useState(() => sceneStore().list().length)
   const [notes, setNotes] = useState(() => reviewStore().list().length)
+  const [drafts, setDrafts] = useState(describeDrafts)
   const [open, setOpen] = useState(false)
+  const [draftsOpen, setDraftsOpen] = useState(false)
   const [message, setMessage] = useState('')
 
   function update(next: SettingsShape) {
@@ -27,6 +57,16 @@ export function Settings() {
     reviewStore().clear()
     setNotes(0)
     setMessage('Private notes were removed from this browser.')
+  }
+
+  function clearDrafts() {
+    const memory = draftMemory()
+    clearProtectDraft(memory)
+    clearCheckDraft(memory)
+    void photoVault().clear().catch(() => {})
+    setDrafts({ protect: null, check: null })
+    setDraftsOpen(false)
+    setMessage('Drafts and any photos kept for them were removed from this browser.')
   }
 
   return (
@@ -58,12 +98,21 @@ export function Settings() {
           <ul className="limits">
             <li>{scenes} scene graph{scenes === 1 ? '' : 's'}, including object positions, an optional mask rectangle, and a file hash when one was computed</li>
             <li>{notes} private note{notes === 1 ? '' : 's'}</li>
+            <li>
+              {drafts.protect ? `Protect draft “${drafts.protect.label}”` : 'No Protect draft'}
+              {drafts.protect ? `, saved ${new Date(drafts.protect.savedAt).toLocaleString()}${drafts.protect.photo ? ', photo kept on this device' : ''}` : ''}
+            </li>
+            <li>
+              {drafts.check ? `Check draft “${drafts.check.label}”` : 'No Check draft'}
+              {drafts.check ? `, saved ${new Date(drafts.check.savedAt).toLocaleString()}${drafts.check.photo ? ', photo kept on this device' : ''}` : ''}
+            </li>
             <li>The latest comparison, in this tab only, until you close it</li>
           </ul>
           <h2>What is not stored</h2>
           <ul className="limits">
-            <li>Photograph pixels</li>
+            <li>Photograph pixels, unless you enabled photo storage for a draft</li>
             <li>Face or body measurements</li>
+            <li>Consents or viewing acknowledgments</li>
             <li>A copy on a server</li>
           </ul>
         </section>
@@ -76,10 +125,14 @@ export function Settings() {
         <div className="actions">
           <Button onClick={() => setOpen(true)}>Delete saved scene graphs</Button>
           <Button variant="secondary" onClick={clearNotes}>Delete private notes</Button>
+          <Button variant="secondary" onClick={() => setDraftsOpen(true)} disabled={!drafts.protect && !drafts.check}>Delete drafts</Button>
         </div>
       </div>
       <Dialog open={open} title="Delete saved scene graphs?" confirmLabel="Delete" onConfirm={clearScenes} onClose={() => setOpen(false)}>
         <p className="muted">This removes scene graphs from this browser. It cannot delete a photograph Stillpoint never stored.</p>
+      </Dialog>
+      <Dialog open={draftsOpen} title="Delete drafts?" confirmLabel="Delete drafts" onConfirm={clearDrafts} onClose={() => setDraftsOpen(false)}>
+        <p className="muted">This removes unfinished Protect and Check drafts, including any photos kept for them. Saved scenes stay untouched.</p>
       </Dialog>
     </div>
   )

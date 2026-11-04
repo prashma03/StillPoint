@@ -11,10 +11,18 @@ type Props = {
   blockedReason: string | null
   ctaLabel: string
   onGraph: (graph: unknown, model: string) => void
+  /**
+   * Scope token for this transfer (image hash + request kind + mask). Consent
+   * resets whenever the scope changes, so one checkbox can never authorize a
+   * different photo, a different request, or a moved mask.
+   */
+  consentScope: string
+  /** Desired maximum landmarks; forwarded to the backend prompt. */
+  maxPoints?: number
 }
 
 /** Experimental AI-assisted mapping. Manual mapping below always works. */
-export function AIAssist({ file, mask, ready, blockedReason, ctaLabel, onGraph }: Props) {
+export function AIAssist({ file, mask, ready, blockedReason, ctaLabel, onGraph, consentScope, maxPoints }: Props) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable' | 'unreachable'>('loading')
   const [consent, setConsent] = useState(false)
   const [working, setWorking] = useState(false)
@@ -32,6 +40,11 @@ export function AIAssist({ file, mask, ready, blockedReason, ctaLabel, onGraph }
     }
   }, [])
 
+  // Consent is per transfer: a new photo, request, or mask needs fresh consent.
+  useEffect(() => {
+    setConsent(false)
+  }, [consentScope])
+
   async function run() {
     if (!file) return
     setWorking(true)
@@ -42,7 +55,7 @@ export function AIAssist({ file, mask, ready, blockedReason, ctaLabel, onGraph }
         return
       }
       const redacted = await redactImage(file, mask)
-      const outcome = await analyzePhoto(redacted.dataUrl, mask)
+      const outcome = await analyzePhoto(redacted.dataUrl, mask, maxPoints)
       if (!outcome.ok) {
         setError(outcome.error)
         return
@@ -69,10 +82,10 @@ export function AIAssist({ file, mask, ready, blockedReason, ctaLabel, onGraph }
       )}
       {status === 'ready' && (
         <>
-          <p className="muted">The masked photo is redacted on this device, then sent to the local backend for model analysis. The person area stays covered.</p>
+          <p className="muted">The masked photo is redacted on this device, then sent to the local backend for model analysis. The person area stays covered. Suggestions arrive unconfirmed — review each one below.</p>
           <label className="checkline">
             <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-            <span>I consent to sending this redacted photo for model analysis. I understand backgrounds and other details may still be identifying.</span>
+            <span>I consent to sending this redacted photo for model analysis. I understand backgrounds and other details may still be identifying. This consent covers this photo and current mask only.</span>
           </label>
           {blockedReason && <p className="note">{blockedReason}</p>}
           <div className="actions">

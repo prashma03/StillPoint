@@ -6,6 +6,12 @@ import { Button } from './ui'
 type Props = {
   file: File | null
   onRects: (rects: SegmentRect[], model: string) => void
+  /**
+   * Scope token for this transfer (image hash + request kind). Consent resets
+   * whenever the scope changes, so one checkbox can never authorize a
+   * different photo.
+   */
+  consentScope: string
 }
 
 /**
@@ -15,7 +21,7 @@ type Props = {
  * Only rectangles come back; pixel masks are discarded server-side.
  * A suggestion is never a confirmed mask.
  */
-export function SegmentAssist({ file, onRects }: Props) {
+export function SegmentAssist({ file, onRects, consentScope }: Props) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable' | 'unreachable'>('loading')
   const [consent, setConsent] = useState(false)
   const [working, setWorking] = useState(false)
@@ -33,6 +39,11 @@ export function SegmentAssist({ file, onRects }: Props) {
       live = false
     }
   }, [])
+
+  // Consent is per transfer: a new photo needs fresh consent.
+  useEffect(() => {
+    setConsent(false)
+  }, [consentScope])
 
   async function run() {
     if (!file) return
@@ -84,7 +95,7 @@ export function SegmentAssist({ file, onRects }: Props) {
           <p className="muted">Detection sees the full photo, including the person. Only coarse rectangles come back; pixel masks are discarded and nothing is stored.</p>
           <label className="checkline">
             <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-            <span>I consent to sending this photo for person detection. I understand the person is visible to the model service.</span>
+            <span>I consent to sending this photo for person detection. I understand the person is visible to the model service. This consent covers this photo only.</span>
           </label>
           <div className="actions">
             <Button onClick={() => void run()} disabled={disabled}>

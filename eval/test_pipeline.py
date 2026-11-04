@@ -23,7 +23,7 @@ sys.path.insert(0, PROJECT_ROOT)
 from backend import meta_client
 from backend.meta_client import MetaAPIError
 from backend.sam_parse import SegmentationError, coarse_person_rects, parse_boxes
-from backend.server import Handler
+from backend.server import Handler, _with_request_limits
 
 
 def tiny_png_data_url():
@@ -215,6 +215,26 @@ class ServerTests(ScrubKeyMixin, unittest.TestCase):
         self.assertEqual(status, 404)
         status, _ = self._request("POST", "/api/unknown", {})
         self.assertEqual(status, 404)
+
+
+class PromptLimitTests(unittest.TestCase):
+    def test_budget_and_mask_bounds_appended(self):
+        prompt = _with_request_limits(
+            "base", 16, {"x": 0.34, "y": 0.1, "w": 0.32, "h": 0.72}
+        )
+        self.assertIn("at most 16 landmarks", prompt)
+        self.assertIn("x=340..660, y=100..820", prompt)
+        self.assertIn("within 20 units", prompt)
+
+    def test_malformed_values_fall_back_safely(self):
+        self.assertIn("at most 12 landmarks", _with_request_limits("b", None, None))
+        self.assertIn("at most 24 landmarks", _with_request_limits("b", 999, None))
+        self.assertIn("at most 4 landmarks", _with_request_limits("b", 0, None))
+        self.assertIn("at most 12 landmarks", _with_request_limits("b", "many", None))
+        # A bad mask never breaks the prompt; it is simply omitted.
+        prompt = _with_request_limits("b", 8, {"x": 0, "y": 0})
+        self.assertIn("at most 8 landmarks", prompt)
+        self.assertNotIn("blacked-out", prompt)
 
 
 if __name__ == "__main__":

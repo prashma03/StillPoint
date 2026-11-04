@@ -4,11 +4,22 @@ import { AIAssist } from '../components/AIAssist'
 import { ProposalAssist } from '../components/ProposalAssist'
 import { SegmentAssist } from '../components/SegmentAssist'
 import { useCaseRecord } from '../components/case'
-import { Button, PageHeader, usePageTitle } from '../components/ui'
+import { Button, LeaveDialog, PageHeader, useLeaveGuard, usePageTitle } from '../components/ui'
 import type { SegmentRect } from '../lib/ai'
 import { runCheck } from '../lib/check'
+import {
+  checkDraftHasWork,
+  clearCheckDraft,
+  draftMemory,
+  loadCheckDraft,
+  needsUnloadWarning,
+  saveCheckDraft,
+  type CheckDraft,
+} from '../lib/draft'
+import { photoVault, vaultAvailable } from '../lib/images'
 import { verifyWithPython } from '../lib/engine'
 import { sha256 } from '../lib/hash'
+import { LANDMARK_DEFAULT_LIMIT, consentScope } from '../lib/landmarks'
 import { readGraph } from '../lib/graphs'
 import { mergeRectsToMask } from '../lib/segment'
 import { sceneStore, settingsStore } from '../lib/storage'
@@ -50,6 +61,17 @@ export function Check() {
   const [photoModel, setPhotoModel] = useState<string | null>(null)
   const [photoNote, setPhotoNote] = useState('')
   const photoFrameRef = useRef<HTMLDivElement>(null)
+  // A saved draft waits for an explicit choice: resume it or start new.
+  // Viewing acknowledgments and consents are never restored.
+  const [pendingResume, setPendingResume] = useState<CheckDraft | null>(() => {
+    const draft = loadCheckDraft(draftMemory())
+    return draft && checkDraftHasWork(draft) ? draft : null
+  })
+  const [photoVaultRef, setPhotoVaultRef] = useState<CheckDraft['photoVault']>(null)
+  const [persistOk, setPersistOk] = useState(true)
+  const [notice, setNotice] = useState('')
+  // Set before programmatic navigation so comparing never trips the leave guard.
+  const leavingRef = useRef(false)
 
   useEffect(() => () => {
     if (photoUrl) URL.revokeObjectURL(photoUrl)
@@ -62,6 +84,152 @@ export function Check() {
       setPhotoUrl(null)
     }
   }, [blind, photoUrl])
+
+  function currentHasWork(): boolean {
+    return (
+      suspect !== null ||
+      sourceGraph !== null ||
+      (photoGraph !== null && photoGraph.room_objects.length > 0) ||
+      photoMaskConfirmed ||
+      suggested !== null
+    )
+  }
+
+  function snapshot(): CheckDraft {
+    return {
+      version: 1,
+      suspectName: suspect?.name ?? null,
+      suspectHash: suspect?.hash ?? null,
+      suspectKind: suspect?.kind ?? null,
+      suspectGraph: suspect?.graph ?? null,
+      sourceId,
+      sourceName,
+      sourceGraph,
+      photoMask,
+      photoMaskConfirmed,
+      suggested,
+      photoGraph,
+      photoOrigin,
+      photoModel,
+      photoNote,
+      photoVault: photoVaultRef,
+      savedAt: new Date().toISOString(),
+    }
+  }
+
+  // Autosave descriptive progress. Pixels are refused by the store; the vault
+  // holds a photo only with explicit opt-in. A pending resume choice leaves
+  // the stored draft untouched.
+  useEffect(() => {
+    if (pendingResume && !currentHasWork()) return
+    try {
+      saveCheckDraft(draftMemory(), snapshot())
+      setPersistOk(true)
+    } catch {
+      setPersistOk(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingResume, suspect, sourceId, sourceName, sourceGraph, photoMask, photoMaskConfirmed, suggested, photoGraph, photoOrigin, photoModel, photoNote, photoVaultRef])
+
+  // Warn before the tab closes only when something would actually be lost.
+  useEffect(() => {
+    const handler = (event: BeforeUnloadEvent) => {
+      if (
+        needsUnloadWarning({
+          saved: leavingRef.current,
+          photoInMemory: suspectFile !== null,
+          photoPersisted: photoVaultRef !== null,
+          persistOk,
+          hasWork: currentHasWork(),
+        })
+      ) {
+        event.preventDefault()
+      }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suspectFile, photoVaultRef, persistOk, suspect, sourceGraph, photoGraph, photoMaskConfirmed, suggested])
+
+  const leave = useLeaveGuard(currentHasWork() && !leavingRef.current)
+
+  function dropVaultPhoto(ref: CheckDraft['photoVault']) {
+    if (ref) void photoVault().deletePhoto(ref.id).catch(() => {})
+  }
+
+  /** Resume applies descriptive state only. Viewing must be re-acknowledged. */
+  async function resumeDraft() {
+    const draft = pendingResume
+    if (!draft) return
+    if (draft.suspectName) {
+      setSuspect({ name: draft.suspectName, hash: draft.suspectHash, graph: draft.suspectGraph, kind: draft.suspectKind ?? 'other' })
+    }
+    setSourceId(draft.sourceId)
+    setSourceName(draft.sourceName)
+    setSourceGraph(draft.sourceGraph)
+    setPhotoMask(draft.photoMask)
+    setPhotoMaskConfirmed(draft.photoMaskConfirmed)
+    setSuggested(draft.suggested)
+    setPhotoGraph(draft.photoGraph)
+    setPhotoOrigin(draft.photoOrigin)
+    setPhotoModel(draft.photoModel)
+    setPhotoNote(draft.photoNote)
+    setPhotoVaultRef(draft.photoVault)
+    setPendingResume(null)
+    setError('')
+    if (draft.photoVault) {
+      try {
+        const stored = await photoVault().loadPhoto(draft.photoVault.id)
+        if (stored && stored.blob.size > 0) {
+          setSuspectFile(new File([stored.blob], stored.name, { type: stored.type }))
+          setNotice('Draft resumed. The photo was restored from this device; viewing still needs your acknowledgment.')
+          return
+        }
+      } catch {
+        // Vault unreadable: fall through to hash-verified re-selection.
+      }
+    }
+    setNotice(
+      draft.suspectKind === 'image'
+        ? 'Draft resumed. Re-select the suspect photo to continue — it is verified by hash.'
+        : 'Draft resumed.',
+    )
+  }
+
+  function discardResume() {
+    dropVaultPhoto(pendingResume?.photoVault ?? null)
+    clearCheckDraft(draftMemory())
+    setPendingResume(null)
+    setNotice('')
+  }
+
+  async function togglePhotoVault(keep: boolean) {
+    if (keep && suspectFile && suspect?.hash) {
+      const ref = { id: `check:${suspect.hash}`, name: suspectFile.name, type: suspectFile.type }
+      try {
+        await photoVault().savePhoto(ref.id, suspectFile, ref.name, ref.type)
+        setPhotoVaultRef(ref)
+        setNotice('This photo will restore with the draft on this device.')
+      } catch {
+        setError('The photo could not be kept on this device.')
+      }
+      return
+    }
+    dropVaultPhoto(photoVaultRef)
+    setPhotoVaultRef(null)
+  }
+
+  /** Re-attach the same suspect photo after a resume, verified by hash. */
+  async function reattachSuspect(file: File) {
+    const hash = await sha256(file)
+    if (suspect?.kind === 'image' && hash !== null && hash === suspect.hash) {
+      setSuspectFile(file)
+      setNotice('Photo re-attached. Your mask and points were kept.')
+      setError('')
+      return
+    }
+    void takeSuspect(file)
+  }
 
   const selected = scenes.find((scene) => scene.id === sourceId) ?? null
   const activeSource = sourceGraph ?? selected?.graph ?? null
@@ -80,6 +248,15 @@ export function Check() {
       return
     }
     const hash = await sha256(file)
+    if (suspect?.kind === 'image' && hash !== null && hash === suspect.hash && !suspectFile) {
+      // Same sealed photo re-selected after a resume: keep the mapping work.
+      setSuspectFile(file)
+      setNotice('Photo re-attached. Your mask and points were kept.')
+      return
+    }
+    // A different file starts fresh mapping and needs fresh photo permission.
+    dropVaultPhoto(photoVaultRef)
+    setPhotoVaultRef(null)
     const looksJson = file.type.includes('json') || file.name.toLowerCase().endsWith('.json')
     if (looksJson) {
       try {
@@ -257,6 +434,9 @@ export function Check() {
         : checked.error
     }
     setRecord(outcome.record)
+    clearCheckDraft(draftMemory())
+    dropVaultPhoto(photoVaultRef)
+    leavingRef.current = true
     setRunning(false)
     navigate('/results')
   }
@@ -268,6 +448,22 @@ export function Check() {
         title="Check without looking"
         lede="A trusted contact can supply the suspicious file. You choose what happens next."
       />
+      {pendingResume && !currentHasWork() && (
+        <div className="panel" role="status">
+          <h2>Resume your draft?</h2>
+          <p className="muted">
+            {pendingResume.suspectName ?? 'Untitled check'} · saved {new Date(pendingResume.savedAt).toLocaleString()}.{' '}
+            {pendingResume.photoVault
+              ? 'The photo was kept on this device and will restore.'
+              : 'Any photo must be re-selected; it is verified by hash before anything continues.'}
+          </p>
+          <div className="actions">
+            <Button onClick={() => void resumeDraft()}>Resume draft</Button>
+            <Button variant="secondary" onClick={discardResume}>Start new</Button>
+          </div>
+        </div>
+      )}
+      {notice && !error && <p className="note" role="status">{notice}</p>}
       <div className="split">
         <div className="stack">
           <section className={blind ? 'seal seal-on' : 'seal'} aria-live="polite">
@@ -314,6 +510,42 @@ export function Check() {
             <b>Add the suspicious file</b>
             <span className="muted">Scene graph JSON can be compared. An image stays sealed until you map it below.</span>
           </label>
+          {suspect?.kind === 'image' && !suspectFile && (
+            <div className="panel" role="status">
+              <h2>Re-select the suspect photo to continue</h2>
+              <p className="muted">
+                {suspect.name} left memory, but your cover and points were kept. Choose the same
+                file{suspect.hash ? ` (hash ${suspect.hash.slice(0, 12)})` : ''} — anything else starts fresh mapping.
+              </p>
+              <label className="drop">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    if (file) void reattachSuspect(file)
+                    event.currentTarget.value = ''
+                  }}
+                />
+                <b>Re-select {suspect.name}</b>
+                <span className="muted">Verified by content hash before anything is restored.</span>
+              </label>
+            </div>
+          )}
+          {suspect?.kind === 'image' && suspectFile && suspect.hash && (
+            vaultAvailable() ? (
+              <label className="checkline">
+                <input
+                  type="checkbox"
+                  checked={photoVaultRef !== null}
+                  onChange={(event) => void togglePhotoVault(event.target.checked)}
+                />
+                <span>Keep this photo on this device for this draft. Otherwise it stays in memory only and must be re-selected after closing the browser.</span>
+              </label>
+            ) : (
+              <p className="note">This browser blocks local photo storage, so the photo stays in memory only.</p>
+            )
+          )}
 
           <label className="field">
             <span className="field-label">Your protected scene</span>
@@ -348,6 +580,7 @@ export function Check() {
               onAck={acknowledgeViewing}
               photoUrl={photoUrl}
               file={suspectFile}
+              hash={suspect?.hash ?? null}
               mask={photoMask}
               maskConfirmed={photoMaskConfirmed}
               onMaskConfirm={setPhotoMaskConfirmed}
@@ -388,6 +621,29 @@ export function Check() {
           <p className="footer-note">Computed on this device.</p>
         </aside>
       </div>
+      <LeaveDialog
+        open={leave.blocked}
+        title="Leave with unsaved work?"
+        onSaveLeave={() => {
+          try {
+            saveCheckDraft(draftMemory(), snapshot())
+          } catch {
+            // Final flush failed; the last autosave still stands.
+          }
+          leave.proceed()
+        }}
+        onDiscard={() => {
+          dropVaultPhoto(photoVaultRef)
+          clearCheckDraft(draftMemory())
+          leave.proceed()
+        }}
+        onCancel={leave.cancel}
+      >
+        <p className="muted">
+          Your suspect file, cover, and points are auto-saved as a draft on this device
+          {suspectFile && !photoVaultRef ? ', but the photo itself lives in memory only and will be lost' : ''}.
+        </p>
+      </LeaveDialog>
     </div>
   )
 }
@@ -398,6 +654,7 @@ type MappingProps = {
   onAck: (next: boolean) => void
   photoUrl: string | null
   file: File | null
+  hash: string | null
   mask: Mask
   maskConfirmed: boolean
   onMaskConfirm: (next: boolean) => void
@@ -438,7 +695,7 @@ function SuspectPhotoMapping(props: MappingProps) {
       </label>
       {props.photoUrl && (
         <>
-          <SegmentAssist file={props.file} onRects={props.onSuggested} />
+          <SegmentAssist file={props.file} onRects={props.onSuggested} consentScope={consentScope(props.hash, 'segment', null)} />
           {props.suggested && props.suggested.length > 0 && (
             <div className="actions">
               <Button variant="secondary" onClick={props.onUseSuggested}>Use suggested mask</Button>
@@ -484,6 +741,8 @@ function SuspectPhotoMapping(props: MappingProps) {
             blockedReason={props.maskConfirmed ? null : 'Confirm the mask above before AI mapping.'}
             ctaLabel="Extract suspect background with AI"
             onGraph={props.onPhotoGraph}
+            consentScope={consentScope(props.hash, 'analyze', props.mask)}
+            maxPoints={LANDMARK_DEFAULT_LIMIT}
           />
           <ProposalAssist
             file={props.file}

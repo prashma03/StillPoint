@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useBlocker } from 'react-router-dom'
 
 export function Mark({ size = 28, animate = false }: { size?: number; animate?: boolean }) {
   return (
@@ -96,6 +96,72 @@ export function usePageTitle(title: string) {
   useEffect(() => {
     document.title = title === 'Home' ? 'Stillpoint — Proof without seeing.' : `Stillpoint — ${title}`
   }, [title])
+}
+
+/**
+ * Block route changes (not same-page step flips) while `when` holds.
+ * Returns the blocked state plus proceed/stay actions for a leave dialog.
+ */
+export function useLeaveGuard(when: boolean) {
+  const blocker = useBlocker(
+    when
+      ? ({ currentLocation, nextLocation }) => currentLocation.pathname !== nextLocation.pathname
+      : false,
+  )
+  const blocked = blocker.state === 'blocked'
+  return {
+    blocked,
+    proceed() {
+      if (blocker.state === 'blocked') blocker.proceed()
+    },
+    cancel() {
+      if (blocker.state === 'blocked') blocker.reset()
+    },
+  }
+}
+
+export function LeaveDialog({
+  open,
+  title,
+  children,
+  onSaveLeave,
+  onDiscard,
+  onCancel,
+}: {
+  open: boolean
+  title: string
+  children: ReactNode
+  onSaveLeave: () => void
+  onDiscard: () => void
+  onCancel: () => void
+}) {
+  const ref = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const dialog = ref.current
+    if (!dialog) return
+    if (open && !dialog.open) dialog.showModal()
+    if (!open && dialog.open) dialog.close()
+  }, [open])
+  return (
+    <dialog
+      ref={ref}
+      onClose={onCancel}
+      onCancel={onCancel}
+      aria-labelledby="leave-dialog-title"
+    >
+      <h2 id="leave-dialog-title">{title}</h2>
+      {children}
+      <div className="actions">
+        <Button onClick={onSaveLeave}>Save draft and leave</Button>
+        <Button variant="secondary" onClick={onDiscard}>
+          Discard changes
+        </Button>
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </dialog>
+  )
 }
 
 export function Dialog({

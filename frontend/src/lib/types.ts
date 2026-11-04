@@ -1,3 +1,5 @@
+export type PointOrigin = 'ai' | 'manual' | 'local'
+
 export type RoomObject = {
   name: string
   x: number
@@ -7,6 +9,18 @@ export type RoomObject = {
   occludes?: string[]
   is_above?: string[]
   is_below?: string[]
+  /**
+   * Where this point came from. 'ai' = model suggestion awaiting review,
+   * 'manual' = placed or corrected by the user, 'local' = on-device proposal.
+   * Absent on legacy graphs; treated as 'manual'.
+   */
+  pointOrigin?: PointOrigin
+  /**
+   * True once the user has reviewed this point (placed by hand, confirmed,
+   * or corrected after an AI suggestion). Absent on legacy graphs; treated
+   * as confirmed so old scenes keep working.
+   */
+  confirmed?: boolean
 }
 
 export type SceneGraph = {

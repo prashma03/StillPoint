@@ -584,3 +584,157 @@ dialog h2 { font-size: 1.4rem; }
   }
   .mask-demo-cover { transform: none; }
 }
+
+/* Landmark editor: reviewed points vs AI suggestions awaiting review. */
+.point-dot {
+  z-index: 2;
+  padding: 0;
+  border: 0;
+}
+button.point-dot { cursor: grab; }
+button.point-dot:active { cursor: grabbing; }
+.point-ok { background: var(--accent); pointer-events: none; }
+button.point-ok { pointer-events: auto; }
+.point-ai {
+  background: transparent;
+  border: 2px solid var(--amber);
+  box-shadow: 0 0 0 2px rgba(16, 25, 35, 0.65);
+  pointer-events: none;
+}
+button.point-ai { pointer-events: auto; }
+.point-box {
+  position: absolute;
+  border: 1px solid rgba(126, 147, 168, 0.8);
+  border-radius: 3px;
+}
+.point-box-ai { border: 1px dashed var(--amber); }
+.legend { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 14px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.legend-ok { background: var(--accent); margin-left: 4px; }
+.legend-dot.legend-ai { background: transparent; border: 2px solid var(--amber); margin-left: 12px; }
+.landmark-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-2);
+}
+.field-inline { display: inline-flex; align-items: center; gap: 8px; }
+.field-inline input {
+  width: 72px;
+  min-height: 40px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+}
+.issue-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.issue { font-size: 14px; color: var(--muted); }
+.issue-error { color: var(--danger); }
+.issue-warning { color: var(--amber); }
+.badge {
+  display: inline-block;
+  min-width: 34px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  text-align: center;
+}
+.badge-ok { background: var(--success-bg); color: var(--success); }
+.badge-ai { background: var(--amber-bg); color: var(--amber); }
+.object-list select {
+  min-height: 36px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-2);
+  max-width: 140px;
+}
+.object-list li { align-items: center; flex-wrap: wrap; }
+
+/* Guided Protect wizard: one focused stage at a time. */
+.wizard-steps {
+  list-style: none;
+  margin: 0 0 22px;
+  padding: 0;
+  display: flex;
+  gap: 6px;
+}
+.wizard-step {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.wizard-n {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  font-size: 12px;
+}
+.wizard-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wizard-step.wizard-now { color: var(--text); border-color: var(--line-strong); }
+.wizard-now .wizard-n { border-color: var(--accent); }
+.wizard-done .wizard-n {
+  background: var(--success-bg);
+  border-color: transparent;
+  color: var(--success);
+}
+.wizard-stage { animation: wizard-in 300ms var(--ease); }
+@keyframes wizard-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.wizard-bar {
+  position: sticky;
+  bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 10px);
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-2);
+}
+/* Shrink-wrap photo box: overlays stay aligned while the photo fits the viewport. */
+.mask-frame-fit { display: flex; justify-content: center; }
+.mask-canvas { position: relative; line-height: 0; width: fit-content; max-width: 100%; }
+.mask-canvas img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: min(62vh, 620px);
+}
+@media (min-width: 768px) {
+  .wizard-bar { bottom: 16px; }
+}
+@media (max-width: 560px) {
+  .wizard-step { flex: 0 0 auto; }
+  .wizard-step.wizard-now { flex: 1 1 auto; }
+  .wizard-todo .wizard-name, .wizard-done .wizard-name { display: none; }
+}
+/* Editor steps use the full width so the photo stays large enough for precision. */
+@media (min-width: 1024px) {
+  .split.split-protect-wide { grid-template-columns: minmax(0, 1fr); }
+}

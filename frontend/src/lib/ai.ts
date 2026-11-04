@@ -86,10 +86,13 @@ export type AnalyzeRequest = {
   image: string
   consent: true
   mask: Mask | null
+  max_points?: number
 }
 
-export function buildAnalyzeBody(image: string, mask: Mask | null): AnalyzeRequest {
-  return { image, consent: true, mask }
+export function buildAnalyzeBody(image: string, mask: Mask | null, maxPoints?: number): AnalyzeRequest {
+  const body: AnalyzeRequest = { image, consent: true, mask }
+  if (typeof maxPoints === 'number' && Number.isFinite(maxPoints)) body.max_points = Math.round(maxPoints)
+  return body
 }
 
 function readRects(value: unknown): SegmentRect[] | null {
@@ -137,13 +140,13 @@ export async function segmentPhoto(dataUrl: string): Promise<SegmentOutcome> {
   }
 }
 
-export async function analyzePhoto(dataUrl: string, mask: Mask | null): Promise<AIAnalysis> {
+export async function analyzePhoto(dataUrl: string, mask: Mask | null, maxPoints?: number): Promise<AIAnalysis> {
   let response: Response
   try {
     response = await fetch(`${AI_BASE}/api/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildAnalyzeBody(dataUrl, mask)),
+      body: JSON.stringify(buildAnalyzeBody(dataUrl, mask, maxPoints)),
       signal: AbortSignal.timeout(AI_TIMEOUT_MS),
     })
   } catch (error) {

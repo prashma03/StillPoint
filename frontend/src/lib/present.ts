@@ -39,6 +39,19 @@ export function present(result: AlignResult): Presentation {
     }
   }
 
+  // Enough shared points, middling agreement: distinguish a uniform shift
+  // (consistent with a crop or resize) from genuinely scattered movement
+  // (consistent with a different viewpoint). Informational only.
+  if (result.uniform_shift) {
+    return {
+      state: 'different_viewpoint',
+      tone: 'amber',
+      label: 'Cannot determine',
+      summary: 'The viewpoints do not align closely enough to establish a reliable connection.',
+      note: 'All shared points moved together, which is consistent with a crop or resize rather than a moved camera. The engine stays conservative: this note never upgrades a verdict.',
+    }
+  }
+
   return {
     state: 'different_viewpoint',
     tone: 'amber',

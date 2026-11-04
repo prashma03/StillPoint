@@ -6,6 +6,10 @@
  * Relationship fields (occludes, is_above, is_below) are carried through as
  * written, but they are unverified: nothing in this build checks them, and
  * the alignment engine never scores them.
+ *
+ * The optional pointOrigin/confirmed fields are a frontend-only carry-through
+ * for review provenance. The Python gate ignores unknown fields, and the
+ * alignment engines never score these two.
  */
 import { COORD_MAX, COORD_MIN, FORBIDDEN_NAMES, MIN_USABLE_FOR_VERDICT } from './align'
 import type { RoomObject, SceneGraph } from './types'
@@ -121,6 +125,20 @@ export function validateGraph(data: unknown): ValidationResult {
       if (value.length > 0) report.has_relationships = true
       rels[key] = [...value]
     }
+    // Optional per-point provenance. Legacy graphs omit both fields; anything
+    // present must be well-formed or the whole graph is rejected as usual.
+    const pointOrigin = obj.pointOrigin
+    if (pointOrigin !== undefined && pointOrigin !== 'ai' && pointOrigin !== 'manual' && pointOrigin !== 'local') {
+      errors.push({ code: 'bad_point_meta', message: `“${name}” has a “pointOrigin” field that is not ai, manual, or local.` })
+      report.invalid += 1
+      return
+    }
+    const confirmed = obj.confirmed
+    if (confirmed !== undefined && typeof confirmed !== 'boolean') {
+      errors.push({ code: 'bad_point_meta', message: `“${name}” has a “confirmed” field that is not true or false.` })
+      report.invalid += 1
+      return
+    }
     room_objects.push({
       name,
       x: obj.x as number,
@@ -128,6 +146,8 @@ export function validateGraph(data: unknown): ValidationResult {
       width: obj.width as number,
       height: obj.height as number,
       ...rels,
+      ...(pointOrigin === undefined ? {} : { pointOrigin }),
+      ...(confirmed === undefined ? {} : { confirmed }),
     })
   })
 
