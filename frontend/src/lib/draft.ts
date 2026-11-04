@@ -17,8 +17,9 @@
 import type { SegmentRect } from './ai'
 import { clampLimit } from './landmarks'
 import { readGraph } from './graphs'
+import { HISTORY_LIMIT } from './history'
 import { assertNoImagePayload } from './storage'
-import type { MappingOrigin, Mask, SceneGraph } from './types'
+import type { MappingOrigin, Mask, RoomObject, SceneGraph } from './types'
 
 export const PROTECT_DRAFT_KEY = 'stillpoint.protect.draft.v1'
 export const CHECK_DRAFT_KEY = 'stillpoint.check.draft.v1'
@@ -51,6 +52,11 @@ export type ProtectDraft = {
   selectedName: string
   landmarkLimit: number
   photoVault: VaultRef | null
+  /** Original room objects from the latest AI analysis, before user edits. */
+  aiSnapshot: RoomObject[] | null
+  /** Bounded undo/redo stacks of pre-edit graphs. */
+  historyPast: SceneGraph[]
+  historyFuture: SceneGraph[]
   savedAt: string
 }
 
@@ -96,6 +102,9 @@ export function emptyDraft(): ProtectDraft {
     selectedName: 'bed',
     landmarkLimit: 12,
     photoVault: null,
+    aiSnapshot: null,
+    historyPast: [],
+    historyFuture: [],
     savedAt: new Date().toISOString(),
   }
 }
@@ -204,6 +213,31 @@ function readSuggested(value: unknown): SegmentRect[] | null {
   return value as SegmentRect[]
 }
 
+/** Original AI room objects: kept only when the list validates as a graph. */
+function readSnapshot(value: unknown): RoomObject[] | null {
+  if (!value) return null
+  const read = readGraph({ room_objects: value })
+  return read.ok ? read.graph.room_objects : null
+}
+
+/** Undo/redo stacks: valid graphs only (empty lists allowed), bounded. */
+function readHistoryStack(value: unknown): SceneGraph[] {
+  if (!Array.isArray(value)) return []
+  const kept: SceneGraph[] = []
+  for (const entry of value) {
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      const items = (entry as { room_objects?: unknown }).room_objects
+      if (Array.isArray(items) && items.length === 0) {
+        kept.push({ room_objects: [] })
+        continue
+      }
+      const read = readGraph(entry)
+      if (read.ok) kept.push(read.graph)
+    }
+  }
+  return kept.slice(-HISTORY_LIMIT)
+}
+
 export function loadProtectDraft(storage: Memory): ProtectDraft | null {
   const raw = storage.getItem(PROTECT_DRAFT_KEY)
   if (!raw) return null
@@ -251,6 +285,9 @@ export function loadProtectDraft(storage: Memory): ProtectDraft | null {
     selectedName: typeof data.selectedName === 'string' ? data.selectedName : 'bed',
     landmarkLimit: typeof data.landmarkLimit === 'number' ? clampLimit(data.landmarkLimit) : 12,
     photoVault: readVaultRef(data.photoVault),
+    aiSnapshot: readSnapshot(data.aiSnapshot),
+    historyPast: readHistoryStack(data.historyPast),
+    historyFuture: readHistoryStack(data.historyFuture),
     savedAt: typeof data.savedAt === 'string' ? data.savedAt : new Date().toISOString(),
   }
 }

@@ -19,10 +19,16 @@ type Props = {
   consentScope: string
   /** Desired maximum landmarks; forwarded to the backend prompt. */
   maxPoints?: number
+  /**
+   * Optional re-run trigger. When the parent bumps this token (after its own
+   * credit confirmation), one analysis starts — but only with consent already
+   * checked, so no run ever happens without explicit permission.
+   */
+  runToken?: number
 }
 
 /** Experimental AI-assisted mapping. Manual mapping below always works. */
-export function AIAssist({ file, mask, ready, blockedReason, ctaLabel, onGraph, consentScope, maxPoints }: Props) {
+export function AIAssist({ file, mask, ready, blockedReason, ctaLabel, onGraph, consentScope, maxPoints, runToken }: Props) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable' | 'unreachable'>('loading')
   const [consent, setConsent] = useState(false)
   const [working, setWorking] = useState(false)
@@ -44,6 +50,25 @@ export function AIAssist({ file, mask, ready, blockedReason, ctaLabel, onGraph, 
   useEffect(() => {
     setConsent(false)
   }, [consentScope])
+
+  // Parent-confirmed re-run. Skips silently on first mount (token 0).
+  useEffect(() => {
+    if (!runToken) return
+    if (!file || status !== 'ready') {
+      setError('The local backend is not ready for another analysis.')
+      return
+    }
+    if (!ready) {
+      setError(blockedReason ?? 'Confirm the cover before AI mapping.')
+      return
+    }
+    if (!consent) {
+      setError('Check the consent box first — each analysis needs your explicit consent.')
+      return
+    }
+    void run()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runToken])
 
   async function run() {
     if (!file) return

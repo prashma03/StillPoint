@@ -221,3 +221,20 @@ def segment_people(data_url, concept="person", model=None):
             # HTTP call itself succeeded (it did: _post did not raise).
             return ""
         raise
+
+
+def chat_completion(messages, model=None):
+    """Run a text-only conversational turn through the configured Responses API."""
+    payload = {
+        "model": model or SCENE_MODEL,
+        "input": [
+            {
+                "type": "message",
+                "role": item["role"],
+                "content": [{"type": "input_text", "text": item["content"]}],
+            }
+            for item in messages
+        ],
+        "stream": False,
+    }
+    return _output_text(_post("/responses", payload))

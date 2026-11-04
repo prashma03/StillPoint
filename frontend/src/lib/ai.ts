@@ -9,6 +9,30 @@ export type AIStatus =
   | { ok: true; configured: boolean; scene_model: string; seg_model: string }
   | { ok: false; error: string }
 
+export type GuideMessage = { role: 'user' | 'assistant'; content: string }
+export type GuideReply = { ok: true; reply: string; model: string } | { ok: false; error: string }
+
+export async function sendGuideMessage(messages: GuideMessage[], page: string): Promise<GuideReply> {
+  try {
+    const response = await fetch(`${AI_BASE}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, page }),
+      signal: AbortSignal.timeout(65000),
+    })
+    const body = await readBody(response)
+    if (!response.ok || typeof body.reply !== 'string') {
+      const code = typeof body.error === 'string' ? body.error : ''
+      return { ok: false, error: code === 'model_not_configured'
+        ? 'AI is unavailable: no model API key is configured on this computer.'
+        : typeof body.message === 'string' ? body.message : 'AI is unavailable right now. Please try again shortly.' }
+    }
+    return { ok: true, reply: body.reply, model: typeof body.model === 'string' ? body.model : 'configured model' }
+  } catch {
+    return { ok: false, error: 'AI is unavailable: the local model backend could not be reached.' }
+  }
+}
+
 export type AIAnalysis =
   | { ok: true; graph: unknown; model: string; report: Record<string, unknown> }
   | { ok: false; error: string }

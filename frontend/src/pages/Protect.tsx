@@ -34,6 +34,7 @@ import {
   pointOriginOf,
   sanitizeAiPoints,
 } from '../lib/landmarks'
+import { canRedo, canUndo, emptyHistory, pushHistory, redoHistory, undoHistory, type GraphHistory } from '../lib/history'
 import { photoVault, vaultAvailable } from '../lib/images'
 import { decodeToPixels } from '../lib/redact'
 import { mergeRectsToMask } from '../lib/segment'
@@ -75,6 +76,13 @@ export function Protect() {
   const [landmarkLimit, setLandmarkLimit] = useState(LANDMARK_DEFAULT_LIMIT)
   const [photoVaultRef, setPhotoVaultRef] = useState<ProtectDraft['photoVault']>(null)
   const [persistOk, setPersistOk] = useState(true)
+  // Original AI room objects from the latest analysis, kept apart from edits
+  // so deleted suggestions restore without another model request.
+  const [aiSnapshot, setAiSnapshot] = useState<RoomObject[] | null>(null)
+  const [history, setHistory] = useState<GraphHistory>(emptyHistory)
+  const [selectedPoint, setSelectedPoint] = useState<string | null>(null)
+  const [confirmRerun, setConfirmRerun] = useState(false)
+  const [rerunToken, setRerunToken] = useState(0)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [pendingFile, setPendingFile] = useState<File | null>(null)
@@ -83,6 +91,12 @@ export function Protect() {
   const [saved, setSaved] = useState(false)
   const frameRef = useRef<HTMLDivElement>(null)
   const pixelsRef = useRef<{ hash: string; gray: Float32Array; width: number; height: number } | null>(null)
+  // A drag ending on its own dot must not also select it.
+  const suppressClickRef = useRef(false)
+  // Latest committed graph for late-arriving AI results: merging against a
+  // stale closure would drop edits made while the analysis was in flight.
+  const graphRef = useRef(graph)
+  graphRef.current = graph
   // Set before programmatic navigation so saving never trips the leave guard.
   const leavingRef = useRef(false)
 
@@ -116,8 +130,42 @@ export function Protect() {
       selectedName,
       landmarkLimit,
       photoVault: photoVaultRef,
+      aiSnapshot,
+      historyPast: history.past,
+      historyFuture: history.future,
       savedAt: new Date().toISOString(),
     }
+  }
+
+  /** Commit an edited graph as one undoable step. */
+  function commit(next: SceneGraph) {
+    setHistory((current) => pushHistory(current, graph))
+    setGraph(next)
+    setSelectedPoint((selected) => (selected && next.room_objects.some((obj) => obj.name === selected) ? selected : null))
+  }
+
+  function undo() {
+    const result = undoHistory(history, graph)
+    if (!result) return
+    setHistory(result.history)
+    setGraph(result.graph)
+    setSelectedPoint((selected) =>
+      selected && result.graph.room_objects.some((obj) => obj.name === selected) ? selected : null,
+    )
+    setError('')
+    setNotice('Undid the last edit.')
+  }
+
+  function redo() {
+    const result = redoHistory(history, graph)
+    if (!result) return
+    setHistory(result.history)
+    setGraph(result.graph)
+    setSelectedPoint((selected) =>
+      selected && result.graph.room_objects.some((obj) => obj.name === selected) ? selected : null,
+    )
+    setError('')
+    setNotice('Redid the edit.')
   }
 
   // Autosave descriptive progress every render it changes. Image pixels are
@@ -134,7 +182,7 @@ export function Protect() {
       setPersistOk(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saved, pendingResume, step, label, fileName, fileHash, imageSize, imported, graph, model, aiNote, mask, maskConfirmed, personAck, suggested, suggestModel, selectedName, landmarkLimit, photoVaultRef])
+  }, [saved, pendingResume, step, label, fileName, fileHash, imageSize, imported, graph, model, aiNote, aiSnapshot, history, mask, maskConfirmed, personAck, suggested, suggestModel, selectedName, landmarkLimit, photoVaultRef])
 
   // Warn before the tab closes only when something would actually be lost:
   // photo pixels without a vault copy, or progress whose autosave failed.
@@ -202,6 +250,9 @@ export function Protect() {
     setSelectedName(draft.selectedName)
     setLandmarkLimit(draft.landmarkLimit)
     setPhotoVaultRef(draft.photoVault)
+    setAiSnapshot(draft.aiSnapshot)
+    setHistory({ past: draft.historyPast, future: draft.historyFuture })
+    setSelectedPoint(null)
     setPendingResume(null)
     setError('')
     setParams({ step: String(draft.step) })
@@ -302,6 +353,9 @@ export function Protect() {
         setGraph(withConfirmed(parsed.graph))
         setModel(null)
         setAiNote('')
+        setAiSnapshot(null)
+        setHistory(emptyHistory())
+        setSelectedPoint(null)
         setFileName(file.name)
         setFileHash(hash)
         setImageSize(null)
@@ -327,6 +381,9 @@ export function Protect() {
     setGraph(emptyGraph)
     setModel(null)
     setAiNote('')
+    setAiSnapshot(null)
+    setHistory(emptyHistory())
+    setSelectedPoint(null)
     setFileName(file.name)
     setFileHash(hash)
     setMask({ ...DEFAULT_MASK })
@@ -342,13 +399,18 @@ export function Protect() {
       setError(`The AI output was rejected: ${parsed.error} Nothing was saved.`)
       return
     }
-    // Merge, never overwrite: existing manual work always survives AI mapping.
+    // Keep the original response apart from edits: restoring reuses it with
+    // no new model request.
+    setAiSnapshot(structuredClone(parsed.graph.room_objects))
+    // Merge, never overwrite: existing work always survives AI mapping.
+    const base = graphRef.current
     const { kept, dropped } = sanitizeAiPoints(parsed.graph.room_objects, {
       mask: preview ? mask : null,
       limit: landmarkLimit,
-      existing: graph.room_objects,
+      existing: base.room_objects,
     })
-    const merged = mergeLandmarks(graph, kept)
+    const merged = mergeLandmarks(base, kept)
+    setHistory((current) => pushHistory(current, base))
     setGraph(merged.graph)
     if (merged.added > 0) setModel(modelName)
     const skipped =
@@ -363,6 +425,28 @@ export function Protect() {
     if (merged.added === 0 && skipped === 0) parts.push('Nothing new arrived.')
     setAiNote(parts.join(' '))
     setError('')
+  }
+
+  /**
+   * Restore deleted AI suggestions from the latest analysis on this device.
+   * Pure local merge with the same duplicate guards as intake: no model
+   * request, and already-placed suggestions are skipped, never duplicated.
+   */
+  function restoreAiSuggestions() {
+    if (!aiSnapshot) return
+    const { kept } = sanitizeAiPoints(aiSnapshot, {
+      mask: preview ? mask : null,
+      limit: landmarkLimit,
+      existing: graph.room_objects,
+    })
+    const merged = mergeLandmarks(graph, kept)
+    if (merged.added === 0) {
+      setNotice('Everything from the last analysis is already placed — nothing was added, and no new request was made.')
+      return
+    }
+    commit(merged.graph)
+    setError('')
+    setNotice(`Restored ${merged.added} suggestion(s) from the last analysis. No new request was made.`)
   }
 
   function tooClose(name: string | null, x: number, y: number): RoomObject | null {
@@ -407,7 +491,7 @@ export function Protect() {
     }
     setError('')
     setNotice('')
-    setGraph((current) => ({ ...current, room_objects: [...current.room_objects, point] }))
+    commit({ ...graph, room_objects: [...graph.room_objects, point] })
   }
 
   function takeSuggested(rects: SegmentRect[], modelName: string) {
@@ -452,7 +536,7 @@ export function Protect() {
       return
     }
     setError('')
-    setGraph((current) => ({ ...current, room_objects: [...current.room_objects, labeled] }))
+    commit({ ...graph, room_objects: [...graph.room_objects, labeled] })
   }
 
   function dragMask(event: React.PointerEvent, mode: 'move' | 'resize') {
@@ -492,6 +576,7 @@ export function Protect() {
     event.stopPropagation()
     const startObj = graph.room_objects.find((obj) => obj.name === name)
     if (!startObj) return
+    const beforeDrag = graph
     let last = landmarkCenter(startObj)
     let moved = false
     const move = (ev: PointerEvent) => {
@@ -510,6 +595,7 @@ export function Protect() {
     const up = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
+      suppressClickRef.current = moved
       if (!moved) return
       const candidate: RoomObject = {
         ...startObj,
@@ -533,7 +619,8 @@ export function Protect() {
         setError(`“${name}” would land almost on top of “${neighbor.name}”. It was moved back.`)
         return
       }
-      // A corrected point counts as reviewed.
+      // A corrected point counts as reviewed. One history entry per drag.
+      setHistory((current) => pushHistory(current, beforeDrag))
       setGraph((current) => ({
         ...current,
         room_objects: current.room_objects.map((obj) => (obj.name === name ? { ...candidate, confirmed: true } : obj)),
@@ -577,10 +664,7 @@ export function Protect() {
       return
     }
     setError('')
-    setGraph((current) => ({
-      ...current,
-      room_objects: current.room_objects.map((item) => (item.name === name ? next : item)),
-    }))
+    commit({ ...graph, room_objects: graph.room_objects.map((item) => (item.name === name ? next : item)) })
   }
 
   function renamePoint(name: string, next: string) {
@@ -600,12 +684,12 @@ export function Protect() {
     }
     setError('')
     setNotice(`Relabeled “${name}” as “${cleaned}” and marked it reviewed.`)
-    setGraph((current) => ({
-      ...current,
-      room_objects: current.room_objects.map((item) =>
+    commit({
+      ...graph,
+      room_objects: graph.room_objects.map((item) =>
         item.name === name ? { ...item, name: cleaned, confirmed: true } : item,
       ),
-    }))
+    })
   }
 
   function confirmPoint(name: string) {
@@ -625,8 +709,8 @@ export function Protect() {
   }
 
   function removePoint(name: string) {
-    setGraph((current) => ({ ...current, room_objects: current.room_objects.filter((item) => item.name !== name) }))
-    setNotice(`Removed “${name}”.`)
+    commit({ ...graph, room_objects: graph.room_objects.filter((item) => item.name !== name) })
+    setNotice(`Removed “${name}”. Undo brings it back.`)
   }
 
   async function pixelCache(): Promise<{ gray: Float32Array; width: number; height: number } | null> {
@@ -676,6 +760,7 @@ export function Protect() {
         setNotice(`Snapping “${name}” would collide with “${neighbor.name}”; kept as placed.`)
         return
       }
+      setHistory((current) => pushHistory(current, graphRef.current))
       setGraph((current) => ({
         ...current,
         room_objects: current.room_objects.map((item) => (item.name === name ? next : item)),
@@ -727,7 +812,14 @@ export function Protect() {
         next = next.map((item) => (item.name === obj.name ? candidate : item))
         moved += 1
       }
-      setGraph((current) => ({ ...current, room_objects: next }))
+      if (moved > 0) {
+        setHistory((current) => pushHistory(current, graphRef.current))
+        const applied = new Map(next.map((item) => [item.name, item]))
+        setGraph((current) => ({
+          ...current,
+          room_objects: current.room_objects.map((item) => applied.get(item.name) ?? item),
+        }))
+      }
       setNotice(
         moved === 0
           ? 'No stronger corners found nearby; every suggestion was kept as placed.'
@@ -753,6 +845,9 @@ export function Protect() {
     setGraph(emptyGraph)
     setModel(null)
     setAiNote('')
+    setAiSnapshot(null)
+    setHistory(emptyHistory())
+    setSelectedPoint(null)
     setImported(false)
     setMask({ ...DEFAULT_MASK })
     setSuggested(null)
@@ -862,12 +957,21 @@ export function Protect() {
                 {interactivePoints ? (
                   <button
                     type="button"
-                    className={needsReview ? 'point-dot point-ai' : 'point-dot point-ok'}
+                    className={`${needsReview ? 'point-dot point-ai' : 'point-dot point-ok'}${selectedPoint === obj.name ? ' point-selected' : ''}`}
                     style={{ left: `${pos.left}%`, top: `${pos.top}%` }}
-                    aria-label={`${obj.name} landmark${needsReview ? ', AI suggestion needing review' : ''}. Drag or use arrow keys to move.`}
+                    aria-label={`${obj.name} landmark${needsReview ? ', AI suggestion needing review' : ''}. Activate to edit, drag or use arrow keys to move.`}
+                    aria-pressed={selectedPoint === obj.name}
                     title={`${obj.name}${needsReview ? ' · needs review' : ''}`}
                     onPointerDown={(event) => dragPoint(event, obj.name)}
-                    onClick={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      if (suppressClickRef.current) {
+                        suppressClickRef.current = false
+                        return
+                      }
+                      setSelectedPoint((current) => (current === obj.name ? null : obj.name))
+                    }}
+                    onFocus={() => setSelectedPoint(obj.name)}
                     onKeyDown={(event) => nudgePoint(event, obj.name)}
                   />
                 ) : (
@@ -1058,6 +1162,10 @@ export function Protect() {
                     <span className="num" role="status">
                       {graph.room_objects.length} / {landmarkLimit} points{unconfirmed > 0 ? ` · ${unconfirmed} need review` : ' · all reviewed'}
                     </span>
+                    <span className="actions">
+                      <Button variant="ghost" onClick={undo} disabled={!canUndo(history)}>Undo</Button>
+                      <Button variant="ghost" onClick={redo} disabled={!canRedo(history)}>Redo</Button>
+                    </span>
                     <label className="field-inline">
                       <span className="field-label">Max points</span>
                       <input
@@ -1078,6 +1186,49 @@ export function Protect() {
                     </label>
                   </div>
                   {photoCanvas(true, true)}
+                  {(() => {
+                    const selected = selectedPoint
+                      ? (graph.room_objects.find((obj) => obj.name === selectedPoint) ?? null)
+                      : null
+                    if (!selected) return null
+                    const center = landmarkCenter(selected)
+                    const reviewed = isConfirmed(selected)
+                    return (
+                      <div className="panel" role="group" aria-label={`Edit ${selected.name}`}>
+                        <h2>{selected.name}</h2>
+                        <p className="muted num">
+                          at {Math.round(center.x)}, {Math.round(center.y)} · {pointOriginOf(selected)} ·{' '}
+                          {reviewed ? 'reviewed' : 'needs review'}
+                        </p>
+                        <RenameField key={selected.name} name={selected.name} onRename={renamePoint} />
+                        <div className="actions">
+                          {!reviewed && (
+                            <Button variant="secondary" onClick={() => confirmPoint(selected.name)}>
+                              Confirm
+                            </Button>
+                          )}
+                          {photoFile && (
+                            <Button variant="secondary" onClick={() => void snapPoint(selected.name)}>
+                              Snap to corner
+                            </Button>
+                          )}
+                          <Button
+                            variant="secondary"
+                            onClick={() => {
+                              removePoint(selected.name)
+                              setSelectedPoint(null)
+                            }}
+                          >
+                            Delete
+                          </Button>
+                          <Button variant="ghost" onClick={() => setSelectedPoint(null)}>
+                            Close
+                          </Button>
+                        </div>
+                        <p className="muted">Tip: drag the dot on the photo to move it, or focus it and use arrow keys.</p>
+                      </div>
+                    )
+                  })()}
                   <p className="legend" aria-hidden="true">
                     <span className="legend-dot legend-ok" /> Reviewed
                     <span className="legend-dot legend-ai" /> AI suggestion — drag to correct, then confirm
@@ -1098,8 +1249,23 @@ export function Protect() {
                     onGraph={takeAIGraph}
                     consentScope={consentScope(fileHash, 'analyze', mask)}
                     maxPoints={landmarkLimit}
+                    runToken={rerunToken}
                   />
                   {aiNote && <p role="status">{aiNote}</p>}
+                  <div className="actions">
+                    <Button variant="secondary" onClick={restoreAiSuggestions} disabled={!aiSnapshot}>
+                      Restore AI suggestions
+                    </Button>
+                    <Button variant="ghost" onClick={() => setConfirmRerun(true)} disabled={!photoFile}>
+                      Re-run AI analysis
+                    </Button>
+                  </div>
+                  {aiSnapshot && (
+                    <p className="muted">
+                      Restoring reuses the last analysis on this device — no new model request. Re-running sends a new
+                      request and may consume credits.
+                    </p>
+                  )}
                   <ProposalAssist
                     file={photoFile}
                     mask={mask}
@@ -1249,6 +1415,21 @@ export function Protect() {
           first makes a stronger scene.
         </p>
       </Dialog>
+      <Dialog
+        open={confirmRerun}
+        title="Run the analysis again?"
+        confirmLabel="Run again"
+        onConfirm={() => {
+          setConfirmRerun(false)
+          setRerunToken((token) => token + 1)
+        }}
+        onClose={() => setConfirmRerun(false)}
+      >
+        <p className="muted">
+          This sends the redacted photo to the model service again through the local backend and may consume API
+          credits. Your current points stay untouched — new suggestions merge in, and anything already placed is kept.
+        </p>
+      </Dialog>
       <LeaveDialog
         open={leave.blocked}
         title="Leave with unsaved work?"
@@ -1280,6 +1461,19 @@ export function Protect() {
     setPendingFile(null)
     void doTakeFile(file, hash)
   }
+}
+
+function RenameField({ name, onRename }: { name: string; onRename: (name: string, next: string) => void }) {
+  const [value, setValue] = useState(name)
+  return (
+    <label className="field-inline rename-field">
+      <span className="field-label">Label</span>
+      <input value={value} maxLength={80} onChange={(event) => setValue(event.target.value)} aria-label={`Label for ${name}`} />
+      <button className="btn btn-secondary" type="button" onClick={() => onRename(name, value)}>
+        Apply
+      </button>
+    </label>
+  )
 }
 
 function ObjectList({
