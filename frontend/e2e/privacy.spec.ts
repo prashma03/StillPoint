@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { readdirSync } from 'node:fs'
 
 test('bundled segmentation runs in a real browser without any image POST or external request', async ({ page }) => {
   const imagePosts: string[] = [], external: string[] = []
@@ -9,19 +10,34 @@ test('bundled segmentation runs in a real browser without any image POST or exte
   // Isolate inference from React/Vite HMR; model code, worker, WASM and weights remain real.
   await page.route('**/mask-smoke', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Local mask smoke test</title>' }))
   await page.goto('/mask-smoke')
-  const result = await page.evaluate(async () => {
+  const builtWorker = process.env.STILLPOINT_PREVIEW ? readdirSync('dist/assets').find(name => /^localSegmentation\.worker-.*\.js$/.test(name)) : undefined
+  if (process.env.STILLPOINT_PREVIEW) expect(builtWorker).toBeTruthy()
+  const result = await page.evaluate(async builtWorker => {
     // Browser smoke fixture; verifies real inference, not human-detection accuracy.
     const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256
     const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#d6e3e7'; ctx.fillRect(0, 0, 256, 256)
     ctx.fillStyle = '#263d54'; ctx.beginPath(); ctx.arc(128, 65, 25, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(95, 93, 66, 120)
     const blob = await new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob!), 'image/png'))
     const modulePath = '/src/lib/localSegmentation.ts'
-    const { segmentLocally } = await import(/* @vite-ignore */ modulePath)
+    const segmentLocally = builtWorker ? async (file: Blob) => {
+      const bitmap = await createImageBitmap(file)
+      return new Promise<{ width: number; height: number; data: Uint8Array }>((resolve, reject) => {
+        const worker = new Worker(`/assets/${builtWorker}`, { type: 'module' })
+        const timer = setTimeout(() => { worker.terminate(); reject(new Error('Production worker timed out')) }, 45000)
+        worker.onerror = event => { clearTimeout(timer); worker.terminate(); reject(new Error(event.message)) }
+        worker.onmessage = event => {
+          clearTimeout(timer); worker.terminate()
+          if (event.data.error) reject(new Error(`${event.data.error} ${event.data.diagnostic ?? ''}`))
+          else resolve(event.data)
+        }
+        worker.postMessage({ bitmap, assets: `${location.origin}/models/person` }, [bitmap])
+      })
+    } : (await import(/* @vite-ignore */ modulePath)).segmentLocally
     let mask
     try { mask = await segmentLocally(blob, new AbortController().signal) }
     catch (error) { throw new Error(`${(error as Error).message} ${(error as Error & { diagnostic?: string }).diagnostic ?? ''}`) }
     return { width: mask.width, height: mask.height, length: mask.data.length, values: [...new Set(Array.from(mask.data))] }
-  })
+  }, builtWorker)
   expect(result.width).toBeGreaterThan(0)
   expect(result.length).toBe(result.width * result.height)
   expect(result.values.every(value => value === 0 || value === 1)).toBe(true)
