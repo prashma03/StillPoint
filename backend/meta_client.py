@@ -17,9 +17,12 @@ surface the failure, never substitute mock data.
 """
 
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
+
+log = logging.getLogger("stillpoint.guide")
 
 def _env(name, default):
     value = os.environ.get(name)
@@ -33,11 +36,29 @@ TIMEOUT_SECONDS = 60
 
 
 class MetaAPIError(Exception):
-    """A failed model call. ``code`` is machine-readable, ``str()`` is safe."""
+    """A failed model call. ``code`` is machine-readable, ``str()`` is safe.
 
-    def __init__(self, code, message):
+    ``status`` is the upstream HTTP status when the failure came from the
+    model service. ``upstream_type``, ``upstream_code``, and ``upstream_param``
+    are sanitized provider fields for logs. They are never the API key and
+    never the request body.
+    """
+
+    def __init__(
+        self,
+        code,
+        message,
+        status=None,
+        upstream_type="",
+        upstream_code="",
+        upstream_param="",
+    ):
         super().__init__(message)
         self.code = code
+        self.status = status
+        self.upstream_type = upstream_type
+        self.upstream_code = upstream_code
+        self.upstream_param = upstream_param
 
 
 def is_configured():
@@ -57,7 +78,7 @@ def _http_code(status):
         )
     if status >= 500:
         return ("server_error", "The model service failed to answer.")
-    return ("bad_request", "The model service rejected the request.")
+    return ("bad_request", "The assistant could not answer that message.")
 
 
 def _post(path, payload, timeout=TIMEOUT_SECONDS):
@@ -78,22 +99,37 @@ def _post(path, payload, timeout=TIMEOUT_SECONDS):
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
+        fields = _error_fields(exc)
+        _log_upstream(exc.code, fields)
         code, message = _http_code(exc.code)
-        if exc.code == 400:
-            detail = _error_detail(exc)
-            if detail == "content_policy_violation":
-                code, message = (
-                    "content_blocked",
-                    "The model service refused the request on safety grounds.",
-                )
-        raise MetaAPIError(code, message) from None
-    except TimeoutError:
+        if "content_policy_violation" in (fields["type"], fields["code"]):
+            code, message = (
+                "content_blocked",
+                "The assistant declined that message.",
+            )
         raise MetaAPIError(
-            "timeout", "The model request timed out."
+            code,
+            message,
+            status=exc.code,
+            upstream_type=fields["type"],
+            upstream_code=fields["code"],
+            upstream_param=fields["param"],
+        ) from None
+    except TimeoutError:
+        _log_upstream("timeout", {"type": "timeout", "code": "timeout", "param": ""})
+        raise MetaAPIError(
+            "timeout",
+            "The model request timed out.",
+            upstream_type="timeout",
+            upstream_code="timeout",
         ) from None
     except (urllib.error.URLError, OSError):
+        _log_upstream("transport", {"type": "transport", "code": "transport", "param": ""})
         raise MetaAPIError(
-            "transport", "Could not reach the model service."
+            "transport",
+            "Could not reach the model service.",
+            upstream_type="transport",
+            upstream_code="transport",
         ) from None
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise MetaAPIError(
@@ -101,25 +137,39 @@ def _post(path, payload, timeout=TIMEOUT_SECONDS):
         ) from None
 
 
-def _error_detail(exc):
-    """Best-effort error code from an HTTPError body. Never raises."""
+def _safe_token(value):
+    """Keep a short provider code. Drop anything that is not an identifier."""
+    if not isinstance(value, str):
+        return ""
+    cleaned = "".join(ch for ch in value if ch.isalnum() or ch in "._-")
+    return cleaned[:80]
+
+
+def _error_fields(exc):
+    """Sanitized type, code, and param from an HTTPError body. Never raises."""
+    fields = {"type": "", "code": "", "param": ""}
     try:
         payload = json.loads(exc.read().decode("utf-8"))
     except (OSError, UnicodeDecodeError, ValueError):
-        return ""
+        return fields
     if not isinstance(payload, dict):
-        return ""
-    for key in ("code", "type"):
-        value = payload.get(key)
-        if isinstance(value, str):
-            return value
+        return fields
     error = payload.get("error")
-    if isinstance(error, dict):
-        for key in ("code", "type"):
-            value = error.get(key)
-            if isinstance(value, str):
-                return value
-    return ""
+    source = error if isinstance(error, dict) else payload
+    for key in ("type", "code", "param"):
+        fields[key] = _safe_token(source.get(key))
+    return fields
+
+
+def _log_upstream(status, fields):
+    """Developer log. Status and safe codes only — never the key or the prompt."""
+    log.warning(
+        "model request failed status=%s type=%s code=%s param=%s",
+        status,
+        fields.get("type") or "-",
+        fields.get("code") or "-",
+        fields.get("param") or "-",
+    )
 
 
 def _output_text(response):
@@ -223,18 +273,28 @@ def segment_people(data_url, concept="person", model=None):
         raise
 
 
+def _message_item(role, text):
+    """Responses API content type depends on the author.
+
+    User, system, and developer turns are ``input_text``. A replayed assistant
+    turn must be ``output_text``. Sending ``input_text`` on an assistant
+    message is rejected with HTTP 400 (invalid_request_error, param input_text).
+    """
+    if role not in ("system", "developer", "user", "assistant"):
+        raise MetaAPIError("bad_request", "The conversation contained an unsupported message.")
+    part = "output_text" if role == "assistant" else "input_text"
+    return {
+        "type": "message",
+        "role": role,
+        "content": [{"type": part, "text": text}],
+    }
+
+
 def chat_completion(messages, model=None):
     """Run a text-only conversational turn through the configured Responses API."""
     payload = {
         "model": model or SCENE_MODEL,
-        "input": [
-            {
-                "type": "message",
-                "role": item["role"],
-                "content": [{"type": "input_text", "text": item["content"]}],
-            }
-            for item in messages
-        ],
+        "input": [_message_item(item["role"], item["content"]) for item in messages],
         "stream": False,
     }
     return _output_text(_post("/responses", payload))

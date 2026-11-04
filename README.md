@@ -101,6 +101,15 @@ install real Python from python.org (check “Add python.exe to PATH”) or
 run `winget install Python.Python.3.12`, then start the file again. Copy
 `.env.example` to `.env` and add your `MODEL_API_KEY` to enable AI replies.
 
+Run everything at once (Windows): double-click `start-dev.bat`. It starts
+the backend (`http://127.0.0.1:8787`) and the frontend (`npm run dev` on
+`http://localhost:5173`) in two windows — open the frontend URL in your
+browser. The Guide and the AI-assisted panels show whether the backend is
+reachable; if they report it is not running, read the backend window for
+the error. Close both windows to stop. There is no dev proxy: the
+frontend calls the backend URL directly and the backend allowlists local
+Vite origins (5173–5175, 4173) via CORS.
+
 ## Environment variables
 
 | Variable | Read by | Purpose |

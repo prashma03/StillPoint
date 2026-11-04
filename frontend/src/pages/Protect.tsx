@@ -11,12 +11,8 @@ import { STABLE_OBJECTS, readGraph } from '../lib/graphs'
 import { sha256 } from '../lib/hash'
 import {
   LANDMARK_DEFAULT_LIMIT,
-  LANDMARK_MAX_LIMIT,
-  LANDMARK_MIN_LIMIT,
   MIN_POINT_SEPARATION,
-  assessLandmarks,
   centerInMaskWithMargin,
-  clampLimit,
   clientToImageCoords,
   consentScope,
   isConfirmed,
@@ -29,11 +25,12 @@ import {
 } from '../lib/landmarks'
 import { decodeToPixels } from '../lib/redact'
 import { mergeRectsToMask } from '../lib/segment'
+import { acceptVisualSuggestion, canAdvanceProtectStep, categoryLabel, imageClickToCoordinates, placeManualAnnotation, suggestionFromRegion, validatePhotoSelection, type ProtectCategory, type VisualSuggestion } from '../lib/protectFlow'
 import { sceneStore } from '../lib/storage'
 import type { MappingOrigin, Mask, RoomObject, SceneGraph } from '../lib/types'
 
 const emptyGraph: SceneGraph = { room_objects: [] }
-const STAGE_NAMES = ['Photo', 'Person', 'Background', 'Review']
+const STAGE_NAMES = ['Choose photo', 'Mark features', 'Review']
 const DEFAULT_MASK: Mask = { x: 0.34, y: 0.1, w: 0.32, h: 0.72 }
 
 export function Protect() {
@@ -45,7 +42,7 @@ export function Protect() {
   const restored = useMemo(() => loadProtectDraft(draftMemory()), [])
   const hasRestoredWork = restored !== null && draftHasWork(restored)
   const stepParam = params.get('step')
-  const step = stepParam ? Math.min(4, Math.max(1, Number(stepParam) || 1)) : (restored?.step ?? 1)
+  const step = stepParam ? Math.min(3, Math.max(1, Number(stepParam) || 1)) : (restored?.step ?? 1)
   const scenes = useMemo(() => sceneStore().list(), [])
   const [label, setLabel] = useState(restored?.label ?? 'Protected scene')
   const [fileName, setFileName] = useState<string | null>(restored?.fileName ?? null)
@@ -64,7 +61,12 @@ export function Protect() {
   const [suggestModel, setSuggestModel] = useState<string | null>(restored?.suggestModel ?? null)
   const [maskConfirmed, setMaskConfirmed] = useState(restored?.maskConfirmed ?? false)
   const [personAck, setPersonAck] = useState(restored?.personAck ?? false)
-  const [selectedName, setSelectedName] = useState<string>(restored?.selectedName ?? STABLE_OBJECTS[0])
+  const [selectedName, setSelectedName] = useState<string>(restored?.selectedName ?? 'window')
+  const [annotationCategory, setAnnotationCategory] = useState<ProtectCategory>('window')
+  const [annotationMode, setAnnotationMode] = useState(false)
+  const [visualSuggestions, setVisualSuggestions] = useState<VisualSuggestion[]>([])
+  const [pointHistory, setPointHistory] = useState<RoomObject[][]>([])
+  const [editingPoint, setEditingPoint] = useState<string | null>(null)
   const [landmarkLimit, setLandmarkLimit] = useState(restored?.landmarkLimit ?? LANDMARK_DEFAULT_LIMIT)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState(hasRestoredWork ? 'Restored your in-progress scene from this tab.' : '')
@@ -137,10 +139,18 @@ export function Protect() {
   }, [saved, fileName, graph, maskConfirmed, personAck])
 
   function go(next: number) {
+    if (next > step && step === 1 && !canAdvanceProtectStep(step, fileName !== null, maskConfirmed, personAck)) {
+      setError('Choose a photograph before continuing.')
+      return
+    }
+    if (next > step && step === 2 && !canAdvanceProtectStep(step, fileName !== null, maskConfirmed, imported && personAck)) {
+      setError('Confirm the person cover before continuing.')
+      return
+    }
     setError('')
     // Step changes only flip the visible stage. Nothing is re-fetched and no
     // paid call repeats: AI runs solely through its own consented buttons.
-    setParams({ step: String(next) })
+    setParams({ step: String(Math.min(3, next)) })
   }
 
   function currentHasWork(): boolean {
@@ -155,16 +165,14 @@ export function Protect() {
 
   async function takeFile(file: File) {
     setError('')
-    if (file.size > 20 * 1024 * 1024) {
-      setError('That file is larger than 20 MB.')
-      return
-    }
+    const validationError = validatePhotoSelection(file)
+    if (validationError) { setError(validationError); return }
     const isJson = file.type.includes('json') || file.name.toLowerCase().endsWith('.json')
-    if (!isJson && !file.type.startsWith('image/')) {
-      setError('Choose a photograph or a scene graph.')
+    let hash: string | null
+    try { hash = await sha256(file) } catch {
+      setError('This file could not be read. Try another JPEG, PNG, or WebP image.')
       return
     }
-    const hash = await sha256(file)
     if (hash === fileHash) {
       // Same content: re-attach the photo (after a reload) or keep going.
       if (!isJson) {
@@ -218,11 +226,19 @@ export function Protect() {
     setPreview(URL.createObjectURL(file))
     setPhotoFile(file)
     pixelsRef.current = null
-    setImageSize(await imageDims(file))
+    try { setImageSize(await imageDims(file)) } catch {
+      setPreview(null)
+      setPhotoFile(null)
+      setFileName(null)
+      setError('This image could not be opened. Try a different JPEG, PNG, or WebP photograph.')
+      return
+    }
     setSuggested(null)
     setSuggestModel(null)
     setImported(false)
     setGraph(emptyGraph)
+    setVisualSuggestions([])
+    setPointHistory([])
     setModel(null)
     setAiNote('')
     setFileName(file.name)
@@ -273,27 +289,16 @@ export function Protect() {
     )
   }
 
-  function place(event: React.MouseEvent<HTMLImageElement>) {
-    const coords = clientToImageCoords(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect())
-    const x = Math.round(coords.x)
-    const y = Math.round(coords.y)
+  function place(event: React.MouseEvent<HTMLDivElement>) {
+    if (!annotationMode || !preview) return
+    const coords = imageClickToCoordinates(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect())
+    const { x, y } = coords
     if (graph.room_objects.length >= landmarkLimit) {
       setError(`The limit of ${landmarkLimit} points is reached. Remove one or raise the limit.`)
       return
     }
-    if (graph.room_objects.some((item) => item.name === selectedName)) {
-      setError(`“${selectedName}” is already placed. Drag it to move, relabel it, or remove it first.`)
-      return
-    }
-    const point: RoomObject = {
-      name: selectedName,
-      x,
-      y,
-      width: 0,
-      height: 0,
-      pointOrigin: 'manual',
-      confirmed: true,
-    }
+    const point = placeManualAnnotation(annotationCategory, x, y, graph.room_objects)
+    if (!point) return
     if (centerInMaskWithMargin(point, mask)) {
       setError('That point is inside the person cover or too close to its edge and will not be kept.')
       return
@@ -305,7 +310,30 @@ export function Protect() {
     }
     setError('')
     setNotice('')
+    setPointHistory((history) => [...history, graph.room_objects])
     setGraph((current) => ({ ...current, room_objects: [...current.room_objects, point] }))
+    setAnnotationMode(false)
+    setNotice(`${categoryLabel(annotationCategory)} added at the point you marked.`)
+  }
+
+  function acceptSuggestion(suggestion: VisualSuggestion, category: ProtectCategory) {
+    if (graph.room_objects.length >= landmarkLimit) { setError(`The limit of ${landmarkLimit} points is reached.`); return }
+    const point = acceptVisualSuggestion(suggestion, graph.room_objects, category)
+    if (!point) return
+    if (centerInMaskWithMargin(point, mask)) { setError('That suggestion overlaps the person cover. Dismiss it or choose a different region.'); return }
+    setPointHistory((history) => [...history, graph.room_objects])
+    setGraph((current) => ({ ...current, room_objects: [...current.room_objects, point] }))
+    setVisualSuggestions((current) => current.map((item) => item.id === suggestion.id ? { ...item, accepted: true } : item))
+    setNotice(`${point.name} suggestion added. You can edit or remove it below.`)
+    setError('')
+  }
+
+  function undoAnnotation() {
+    const previous = pointHistory.at(-1)
+    if (!previous) return
+    setGraph((current) => ({ ...current, room_objects: previous }))
+    setPointHistory((history) => history.slice(0, -1))
+    setNotice('Last annotation undone.')
   }
 
   function takeSuggested(rects: SegmentRect[], modelName: string) {
@@ -490,6 +518,7 @@ export function Protect() {
     if (checked.name === name) return
     setError('')
     setNotice(`Relabeled “${name}” as “${checked.name}” and marked it reviewed.`)
+    setPointHistory((history) => [...history, graph.room_objects])
     setGraph((current) => ({
       ...current,
       room_objects: current.room_objects.map((item) =>
@@ -515,6 +544,7 @@ export function Protect() {
   }
 
   function removePoint(name: string) {
+    setPointHistory((history) => [...history, graph.room_objects])
     setGraph((current) => ({ ...current, room_objects: current.room_objects.filter((item) => item.name !== name) }))
     setNotice(`Removed “${name}”.`)
   }
@@ -658,7 +688,6 @@ export function Protect() {
   const outside = graph.room_objects.filter((obj) => !centerInMaskWithMargin(obj, preview ? mask : null))
   const unconfirmed = outside.filter((obj) => !isConfirmed(obj)).length
   const hasAi = graph.room_objects.some((obj) => pointOriginOf(obj) === 'ai')
-  const issues = assessLandmarks(graph, preview ? mask : null)
   const strong = outside.length >= 4
   const canSave = imported ? personAck : Boolean(preview && maskConfirmed)
   const wide = step >= 2 && step <= 3 && preview !== null
@@ -702,11 +731,10 @@ export function Protect() {
     if (!preview) return null
     return (
       <div className="mask-frame mask-frame-fit">
-        <div className="mask-canvas" ref={frameRef}>
+        <div className={`mask-canvas${annotationMode && clickable ? ' annotation-active' : ''}`} ref={frameRef} onClick={clickable ? place : undefined}>
           <img
             src={preview}
-            alt="Your selected photograph. Cover the person with the opaque rectangle."
-            onClick={clickable ? place : undefined}
+            alt={clickable ? 'Selected photo. Click to place the chosen background feature marker.' : 'Selected photo with the person cover overlay.'}
             draggable={false}
           />
           <div
@@ -780,6 +808,11 @@ export function Protect() {
               }}
             />
           ))}
+          {visualSuggestions.filter((item) => !item.accepted).map((item, index) => (
+            <div key={item.id} className="visual-suggestion" style={{ left: `${item.x / 10}%`, top: `${item.y / 10}%`, width: `${item.width / 10}%`, height: `${item.height / 10}%` }}>
+              <span>Unidentified object · suggestion {index + 1}</span>
+            </div>
+          ))}
         </div>
       </div>
     )
@@ -815,9 +848,9 @@ export function Protect() {
   return (
     <div className="page">
       <PageHeader
-        eyebrow={`Protect · Step ${step} of 4`}
-        title="Protect a photo"
-        lede="Save a map of the room. The photograph itself is not kept."
+        eyebrow={`Protect · Step ${step} of 3`}
+        title="Protect an original photo"
+        lede="Create a reference map of stable background features. A later comparison can find a possible relationship between images; it cannot establish identity, consent, ownership, or wrongdoing."
       />
       <ol className="wizard-steps" aria-label="Protect progress">
         {STAGE_NAMES.map((name, index) => {
@@ -836,8 +869,9 @@ export function Protect() {
         <div className="wizard-stage">
           {step === 1 && (
             <section className="stack" aria-labelledby="protect-stage-title">
-              <h2 id="protect-stage-title">Choose a photo</h2>
-              <p className="muted">Pick the original photograph. It stays in this browser tab — it is never uploaded or stored.</p>
+              <h2 id="protect-stage-title">Start with the original photo</h2>
+              <p className="muted">Stillpoint maps stable details in the background so you can compare another image later. Choose the original scene you want to keep as a reference.</p>
+              <div className="protect-intro"><strong>What happens next</strong><span>Cover any person, mark recognizable background features, then review the scene map before saving.</span><span>Stillpoint saves feature names, positions, a cover rectangle, and a file hash when available. The image is kept in memory during this session; optional AI processing sends it only after separate consent. See each tool’s notice for what is sent and retained.</span></div>
               <label className="drop">
                 <input
                   type="file"
@@ -848,8 +882,8 @@ export function Protect() {
                     event.currentTarget.value = ''
                   }}
                 />
-                <b>{fileName ? 'Replace the photograph or scene graph' : 'Choose a photograph or a scene graph'}</b>
-                <span className="muted">It stays in this browser tab until you leave.</span>
+                <b>{fileName ? 'Replace the photograph or scene graph' : 'Choose a photograph'}</b>
+                <span className="muted">JPEG, PNG, or WebP · up to 20 MB</span>
               </label>
               {fileName && <p>Selected {fileName}.{imageSize ? ` ${imageSize.w}×${imageSize.h}px.` : ''} {imported ? 'Scene graph read.' : 'Photograph held in memory only.'}</p>}
               <label className="field">
@@ -858,7 +892,7 @@ export function Protect() {
               </label>
               {error && <p className="error" role="alert">{error}</p>}
               <div className="wizard-bar">
-                <Button onClick={() => go(2)} disabled={!fileName}>Continue</Button>
+                <Button onClick={() => go(2)} disabled={!canAdvanceProtectStep(1, fileName !== null, maskConfirmed, personAck)}>Continue</Button>
                 {currentHasWork() && <Button variant="ghost" onClick={() => setConfirmRestart(true)}>Start over</Button>}
               </div>
             </section>
@@ -866,24 +900,25 @@ export function Protect() {
 
           {step === 2 && (
             <section className="stack" aria-labelledby="protect-stage-title">
-              <h2 id="protect-stage-title">{preview || photoMissing ? 'Cover the person' : 'Confirm no person'}</h2>
+              <h2 id="protect-stage-title">Identify background features</h2>
               {photoNeededNotice()}
               {preview ? (
                 <>
-                  <p className="muted">Drag the black rectangle over the person. Nothing is analyzed until you confirm the cover.</p>
-                  <SegmentAssist file={photoFile} onRects={takeSuggested} consentScope={consentScope(fileHash, 'segment', null)} />
-                  {suggested && suggested.length > 0 && (
-                    <div className="actions">
-                      <Button variant="secondary" onClick={useSuggested}>Use suggested cover{suggestModel ? ` (${suggestModel})` : ''}</Button>
-                      <Button variant="ghost" onClick={() => { setSuggested(null); setSuggestModel(null) }}>Dismiss suggestion</Button>
-                    </div>
-                  )}
-                  {photoCanvas(false, false)}
-                  <label className="checkline">
-                    <input type="checkbox" checked={maskConfirmed} onChange={(event) => setMaskConfirmed(event.target.checked)} />
-                    <span>The person is inside the opaque rectangle.</span>
-                  </label>
-                  <p className="note">Masking hides the person from analysis but cannot guarantee anonymization — backgrounds and other details may still be identifying.</p>
+                  <p className="muted">First cover any person. Then choose a feature and click its location in the photo. Manual marking works even when AI is unavailable.</p>
+                  <details className="protect-cover"><summary>Privacy cover for a person</summary><p className="muted">Move and resize the opaque cover over the person. Nothing is analyzed until you confirm it. Masking cannot guarantee anonymization; backgrounds may still identify a place.</p><SegmentAssist file={photoFile} onRects={takeSuggested} consentScope={consentScope(fileHash, 'segment', null)} />{suggested && suggested.length > 0 && <div className="actions"><Button variant="secondary" onClick={useSuggested}>Use suggested cover</Button><Button variant="ghost" onClick={() => { setSuggested(null); setSuggestModel(null) }}>Dismiss cover suggestion</Button></div>}{photoCanvas(false, false)}<label className="checkline"><input type="checkbox" checked={maskConfirmed} onChange={(event) => setMaskConfirmed(event.target.checked)} /><span>The person is inside the opaque rectangle.</span></label></details>
+                  <div className="protect-annotator">
+                    <h3>Mark a background feature</h3>
+                    <p className="muted">Select what you see, then mark it in the photo.</p>
+                    <div className="protect-category-grid" role="group" aria-label="Choose background feature category">{(['window','door','desk','bed','poster','chair','shelf','table','rug','other'] as ProtectCategory[]).map((category) => <button type="button" key={category} className={`protect-category${annotationCategory === category ? ' selected' : ''}`} aria-pressed={annotationCategory === category} onClick={() => { setAnnotationCategory(category); setAnnotationMode(true); setNotice(`Now click the ${category === 'other' ? 'background feature' : category} in your photo.`); setError('') }}>{categoryLabel(category)}</button>)}</div>
+                    <p className={`annotation-instruction${annotationMode ? ' active' : ''}`} role="status">{annotationMode ? `Now click the ${annotationCategory === 'other' ? 'background feature' : annotationCategory} in your photo.` : 'Choose a category to start placing a marker.'}</p>
+                    <div className="photo-annotation-stage">{photoCanvas(annotationMode, true)}</div>
+                    <div className="actions"><Button variant="secondary" disabled={pointHistory.length === 0} onClick={undoAnnotation}>Undo last marker</Button><Button variant="ghost" onClick={() => setAnnotationMode(false)}>Cancel marking</Button></div>
+                    <section className="selected-features"><h3>Selected features <span>{graph.room_objects.length}</span></h3>{graph.room_objects.length === 0 ? <p className="muted">Your marked features will appear here.</p> : graph.room_objects.map((point) => <div key={point.name} className="feature-row"><span className={`feature-source ${pointOriginOf(point) === 'ai' || pointOriginOf(point) === 'local' ? 'suggested' : ''}`}>{point.name}<small>{pointOriginOf(point) === 'manual' ? 'Marked by you' : pointOriginOf(point) === 'ai' ? 'AI suggestion · reviewed' : 'On-device suggestion'}</small></span><div className="actions"><button className="btn btn-ghost" type="button" onClick={() => setEditingPoint(point.name === editingPoint ? null : point.name)}>{editingPoint === point.name ? 'Close edit' : 'Edit label'}</button><button className="btn btn-ghost" type="button" onClick={() => removePoint(point.name)}>Remove</button></div>{editingPoint === point.name && <select aria-label={`Edit ${point.name} category`} value={point.name.replace(/ \d+$/, '')} onChange={(event) => { renamePoint(point.name, event.target.value); setEditingPoint(null) }}>{['window','door','desk','bed','poster','chair','shelf','table','rug','other background feature'].map((name) => <option key={name} value={name}>{categoryLabel(name === 'other background feature' ? 'other' : name as ProtectCategory)}</option>)}</select>}</div>)}</section>
+                    <ProposalAssist file={photoFile} mask={mask} maskConfirmed={maskConfirmed} takenNames={new Set(graph.room_objects.map((point) => point.name))} onAdd={takeProposal} visualOnly onSuggestions={(regions) => setVisualSuggestions(regions.map(suggestionFromRegion))} />
+                    {visualSuggestions.filter((item) => !item.accepted).map((item, index) => <div className="suggestion-review" key={item.id}><div><strong>{item.label === 'Unidentified object' ? 'Unidentified object' : `Suggested ${item.label.toLowerCase()}`}</strong><span>On-device visual region {index + 1}; this tool does not recognize object categories.</span></div><select aria-label={`Correct suggestion ${index + 1} category`} value={item.label === 'Unidentified object' ? 'other' : item.label.toLowerCase()} onChange={(event) => setVisualSuggestions((current) => current.map((entry) => entry.id === item.id ? { ...entry, label: event.target.value === 'other' ? 'Unidentified object' : categoryLabel(event.target.value as ProtectCategory) } : entry))}>{['window','door','desk','bed','poster','chair','shelf','table','rug','other'].map((name) => <option key={name} value={name}>{name === 'other' ? 'Unidentified object' : `Suggested ${name}`}</option>)}</select><Button variant="secondary" onClick={() => acceptSuggestion(item, (item.label === 'Unidentified object' ? 'other' : item.label.toLowerCase()) as ProtectCategory)}>Accept suggestion</Button><Button variant="ghost" onClick={() => setVisualSuggestions((current) => current.filter((entry) => entry.id !== item.id))}>Dismiss</Button></div>)}
+                    <AIAssist file={photoFile} mask={mask} ready={maskConfirmed} blockedReason={maskConfirmed ? null : 'Confirm the person cover above before using AI.'} ctaLabel="Suggest background features with AI" onGraph={takeAIGraph} consentScope={consentScope(fileHash, 'analyze', mask)} maxPoints={landmarkLimit} />
+                    {aiNote && <p role="status">{aiNote}</p>}
+                  </div>
                 </>
               ) : photoMissing ? null : (
                 <>
@@ -897,122 +932,16 @@ export function Protect() {
               {error && <p className="error" role="alert">{error}</p>}
               <div className="wizard-bar">
                 <Button variant="secondary" onClick={() => go(1)}>Back</Button>
-                <Button onClick={() => go(3)} disabled={preview || imported ? (preview ? !maskConfirmed : !personAck) : true}>Continue</Button>
+                <Button onClick={() => go(3)} disabled={!canAdvanceProtectStep(2, fileName !== null, Boolean(preview && maskConfirmed), Boolean(imported && personAck))}>Review setup</Button>
               </div>
             </section>
           )}
 
           {step === 3 && (
             <section className="stack" aria-labelledby="protect-stage-title">
-              <h2 id="protect-stage-title">Map the background</h2>
-              {photoNeededNotice()}
-              {preview ? (
-                <>
-                  <p className="muted">Mark stable background details — furniture corners, doors, windows. Points inside the person cover are rejected. Drag any point to correct it.</p>
-                  <div className="landmark-bar">
-                    <span className="num" role="status">
-                      {graph.room_objects.length} / {landmarkLimit} points{unconfirmed > 0 ? ` · ${unconfirmed} need review` : ' · all reviewed'}
-                    </span>
-                    <label className="field-inline">
-                      <span className="field-label">Max points</span>
-                      <input
-                        type="number"
-                        min={LANDMARK_MIN_LIMIT}
-                        max={LANDMARK_MAX_LIMIT}
-                        value={landmarkLimit}
-                        onChange={(event) => {
-                          const next = clampLimit(Number(event.target.value))
-                          setLandmarkLimit(next)
-                          if (next < graph.room_objects.length) {
-                            setNotice(`Limit set to ${next}, below the current ${graph.room_objects.length} points. Nothing was removed — new points stay blocked until you remove some or raise it.`)
-                          } else {
-                            setNotice('')
-                          }
-                        }}
-                      />
-                    </label>
-                  </div>
-                  {photoCanvas(true, true)}
-                  <p className="legend" aria-hidden="true">
-                    <span className="legend-dot legend-ok" /> Reviewed
-                    <span className="legend-dot legend-ai" /> AI suggestion — drag to correct, then confirm
-                  </p>
-                  <ul className="issue-list" aria-label="Landmark checks">
-                    {issues.map((issue, index) => (
-                      <li key={index} className={`issue issue-${issue.level}`} role={issue.level === 'error' ? 'alert' : 'status'}>
-                        {issue.message}
-                      </li>
-                    ))}
-                  </ul>
-                  <AIAssist
-                    file={photoFile}
-                    mask={mask}
-                    ready={maskConfirmed}
-                    blockedReason={maskConfirmed ? null : 'Confirm the cover on the previous step before AI mapping.'}
-                    ctaLabel="Map background with AI"
-                    onGraph={takeAIGraph}
-                    consentScope={consentScope(fileHash, 'analyze', mask)}
-                    maxPoints={landmarkLimit}
-                  />
-                  {aiNote && <p role="status">{aiNote}</p>}
-                  <ProposalAssist
-                    file={photoFile}
-                    mask={mask}
-                    maskConfirmed={maskConfirmed}
-                    takenNames={new Set(graph.room_objects.map((item) => item.name))}
-                    onAdd={takeProposal}
-                  />
-                  <section className="stack" aria-label="Mark points by hand">
-                    <h2>Mark points by hand</h2>
-                    <p className="muted">Choose a background object, then click where it sits in the photo. This always works, with or without AI.</p>
-                    <div className="chips" role="listbox" aria-label="Background objects">
-                      {STABLE_OBJECTS.map((name) => (
-                        <button key={name} type="button" className={selectedName === name ? 'chip on' : 'chip'} onClick={() => setSelectedName(name)}>
-                          {name}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                  <ObjectList
-                    graph={graph}
-                    editable
-                    canSnap={photoFile !== null}
-                    onRemove={removePoint}
-                    onRename={renamePoint}
-                    onConfirm={confirmPoint}
-                    onConfirmAll={confirmAll}
-                    onSnap={snapPoint}
-                    onSnapAll={snapAll}
-                  />
-                </>
-              ) : (
-                <>
-                  <p className="note">This scene graph was imported as written. Photo-based mapping needs a photograph, so review the imported points below.</p>
-                  <ObjectList
-                    graph={graph}
-                    editable
-                    canSnap={false}
-                    onRemove={removePoint}
-                    onRename={renamePoint}
-                    onConfirm={confirmPoint}
-                    onConfirmAll={confirmAll}
-                    onSnap={snapPoint}
-                    onSnapAll={snapAll}
-                  />
-                </>
-              )}
-              {error && <p className="error" role="alert">{error}</p>}
-              <div className="wizard-bar">
-                <Button variant="secondary" onClick={() => go(2)}>Back</Button>
-                <Button onClick={() => go(4)}>Continue</Button>
-              </div>
-            </section>
-          )}
-
-          {step === 4 && (
-            <section className="stack" aria-labelledby="protect-stage-title">
               <h2 id="protect-stage-title">Review and save</h2>
               {photoNeededNotice()}
+              {preview && <div className="review-photo"><img src={preview} alt="Original photo preview for review" /></div>}
               <p className={strong ? 'status status-success' : 'status status-amber'}>
                 {strong ? 'Strong scene coverage.' : 'Not enough background detail for a reliable comparison.'}
               </p>
@@ -1029,7 +958,7 @@ export function Protect() {
                 Mapped {hasAi ? 'with AI assistance' : 'by hand'}
                 {hasAi && model ? ` (${model})` : ''}. A background match alone never proves who is in a photo.
               </p>
-              <ObjectList graph={graph} onRemove={removePoint} />
+              <ObjectList graph={graph} editable canSnap={false} onRemove={removePoint} onRename={renamePoint} onConfirm={confirmPoint} onConfirmAll={confirmAll} onSnap={snapPoint} onSnapAll={snapAll} />
               <h2>What is kept on this device</h2>
               <ul className="limits">
                 <li>Object names and positions</li>
@@ -1037,11 +966,11 @@ export function Protect() {
                 <li>The file name is not saved. A SHA-256 of the file is saved when hashing succeeds</li>
                 <li>The date</li>
               </ul>
-              <p className="note">The photograph is not written to storage. Closing this page releases it from memory.</p>
+              <p className="note">The photograph is not written to Stillpoint storage; it remains in session memory while this page is open. If you chose an optional external AI feature, that step sent an image only after your explicit consent; provider retention is not verified by Stillpoint.</p>
               {fileHash && <p className="num muted">SHA-256 prefix {fileHash.slice(0, 12)}</p>}
               {error && <p className="error" role="alert">{error}</p>}
               <div className="wizard-bar">
-                <Button variant="secondary" onClick={() => go(3)}>Back</Button>
+                <Button variant="secondary" onClick={() => go(2)}>Edit</Button>
                 <Button onClick={save} disabled={!canSave}>Save scene</Button>
                 {currentHasWork() && <Button variant="ghost" onClick={() => setConfirmRestart(true)}>Start over</Button>}
               </div>

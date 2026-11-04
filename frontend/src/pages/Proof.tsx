@@ -65,13 +65,24 @@ export function Proof() {
 
   return (
     <div className="page proof-page">
+      <PageHeader
+        eyebrow="Proof"
+        title="Evidence without exposure"
+        lede="Explore a simulated 3D explanation of spatial correspondence. Your actual comparison and redacted report remain separate below."
+      />
+      <section className="proof-evidence proof-evidence-feature" aria-labelledby="evidence-connects-title">
+        <div className="proof-evidence-heading">
+          <div>
+            <p className="eyebrow">How the Evidence Connects · Simulated</p>
+            <h2 id="evidence-connects-title">Spatial correspondence, made visible.</h2>
+          </div>
+          <p className="muted">A synthetic conceptual demonstration only. The rooms and lines are not derived from uploaded images or from the verification result.</p>
+        </div>
+        <EvidenceConnections />
+      </section>
       <div className={`proof-layout${current ? '' : ' proof-empty'}`}>
         <section className="proof-main">
-          <PageHeader
-            eyebrow="Proof"
-            title="Evidence without exposure"
-            lede="A drawing of the room lineup. No photograph travels with this report."
-          />
+          <h2 className="proof-section-title">Your comparison</h2>
           {current && <>
             {current.sample && <p className="note proof-sample">Sample scene graphs. Not your photographs.</p>}
             <EvidenceDiagram
@@ -106,12 +117,6 @@ export function Proof() {
               <ul className="limits proof-explanation">
                 {verdictExplanation(current.result).map((item) => <li key={item}>{item}</li>)}
               </ul>
-            </section>
-            <section className="proof-evidence" aria-labelledby="evidence-connects-title">
-              <p className="eyebrow">How the Evidence Connects</p>
-              <h2 id="evidence-connects-title">Spatial correspondence, made visible.</h2>
-              <p className="muted">Stillpoint examines spatial relationships between background features to identify potential correspondences between images. The interactive reconstruction below is a <strong>simulated conceptual demonstration</strong> — it is not derived from your uploaded images and is not a verification result.</p>
-              <EvidenceConnections />
             </section>
             <div className="actions proof-actions">
               <Button variant="secondary" onClick={() => setReplay((value) => value + 1)}>Replay alignment</Button>

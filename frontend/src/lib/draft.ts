@@ -132,7 +132,7 @@ export function loadProtectDraft(storage: Memory): ProtectDraft | null {
     typeof mask === 'object' &&
     ['x', 'y', 'w', 'h'].every((key) => typeof (mask as Record<string, unknown>)[key] === 'number')
 
-  const step = typeof data.step === 'number' ? Math.min(4, Math.max(1, Math.floor(data.step))) : 1
+  const step = typeof data.step === 'number' ? Math.min(3, Math.max(1, Math.floor(data.step))) : 1
   return {
     version: 1,
     step,
@@ -151,7 +151,7 @@ export function loadProtectDraft(storage: Memory): ProtectDraft | null {
     personAck: data.personAck === true,
     suggested: Array.isArray(data.suggested) ? (data.suggested as SegmentRect[]) : null,
     suggestModel: typeof data.suggestModel === 'string' ? data.suggestModel : null,
-    selectedName: typeof data.selectedName === 'string' ? data.selectedName : 'bed',
+    selectedName: typeof data.selectedName === 'string' ? data.selectedName : 'window',
     landmarkLimit: typeof data.landmarkLimit === 'number' ? clampLimit(data.landmarkLimit) : 12,
     savedAt: typeof data.savedAt === 'string' ? data.savedAt : new Date().toISOString(),
   }

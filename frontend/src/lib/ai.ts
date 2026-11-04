@@ -1,3 +1,4 @@
+import { guideErrorMessage } from './guide'
 import type { Mask } from './types'
 
 /** Local-backend AI bridge. The browser never holds an API key. */
@@ -10,7 +11,9 @@ export type AIStatus =
   | { ok: false; error: string }
 
 export type GuideMessage = { role: 'user' | 'assistant'; content: string }
-export type GuideReply = { ok: true; reply: string; model: string } | { ok: false; error: string }
+export type GuideReply =
+  | { ok: true; reply: string; model: string }
+  | { ok: false; error: string; code: string }
 
 export async function sendGuideMessage(messages: GuideMessage[], page: string): Promise<GuideReply> {
   try {
@@ -22,17 +25,15 @@ export async function sendGuideMessage(messages: GuideMessage[], page: string): 
     })
     const body = await readBody(response)
     if (!response.ok || typeof body.reply !== 'string') {
-      const code = typeof body.error === 'string' ? body.error : ''
-      return { ok: false, error: code === 'model_not_configured'
-        ? 'AI is unavailable: no model API key is configured on this computer.'
-        : typeof body.message === 'string' ? body.message : 'AI is unavailable right now. Please try again shortly.' }
+      const code = typeof body.error === 'string' && body.error ? body.error : 'bad_response'
+      return { ok: false, code, error: guideErrorMessage(code) }
     }
     return { ok: true, reply: body.reply, model: typeof body.model === 'string' ? body.model : 'configured model' }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'TimeoutError') {
-      return { ok: false, error: 'The local Guide backend timed out. Check that it is running, then retry.' }
+      return { ok: false, code: 'backend_timeout', error: guideErrorMessage('backend_timeout') }
     }
-    return { ok: false, error: 'The Guide backend is not running at 127.0.0.1:8787. From the StillPoint project folder, start it with `python -m backend.server`, then retry. A model API key is also needed for AI replies.' }
+    return { ok: false, code: 'backend_down', error: guideErrorMessage('backend_down') }
   }
 }
 

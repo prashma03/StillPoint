@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AI_BASE, sendGuideMessage } from './ai'
+import {
+  guideErrorMessage,
+  guideFallback,
+  guideLinkAfterFailure,
+  guideLinkFromStatus,
+  guideLinkLabel,
+  guideSegments,
+} from './guide'
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -28,6 +36,26 @@ describe('guide chat client', () => {
     expect(JSON.stringify(body)).not.toMatch(/data:image|dataUrl|pixels/i)
   })
 
+  it('sends a greeting and then a follow-up with the earlier assistant turn', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ reply: 'Use Choose a photograph.', model: 'muse-wonder-1.0' }))
+    vi.stubGlobal('fetch', fetchMock)
+    const first = await sendGuideMessage([{ role: 'user', content: 'hi' }], 'protect')
+    expect(first.ok).toBe(true)
+    const second = await sendGuideMessage(
+      [
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: 'Hello.' },
+        { role: 'user', content: 'where do I upload my picture?' },
+      ],
+      'protect',
+    )
+    expect(second).toEqual({ ok: true, reply: 'Use Choose a photograph.', model: 'muse-wonder-1.0' })
+    const secondBody = JSON.parse((fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].body as string)
+    expect(secondBody.page).toBe('protect')
+    expect(secondBody.messages.map((item: { role: string }) => item.role)).toEqual(['user', 'assistant', 'user'])
+    expect(JSON.stringify(secondBody)).not.toMatch(/data:image|MODEL_API_KEY|Bearer/i)
+  })
+
   it('labels the model generically when the backend omits it', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ reply: 'Hi' })))
     expect(await sendGuideMessage([{ role: 'user', content: 'hi' }], 'home')).toEqual({
@@ -41,6 +69,7 @@ describe('guide chat client', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'model_not_configured' }, 503)))
     expect((await sendGuideMessage([{ role: 'user', content: 'hi' }], 'home'))).toEqual({
       ok: false,
+      code: 'model_not_configured',
       error: 'AI is unavailable: no model API key is configured on this computer.',
     })
 
@@ -50,19 +79,47 @@ describe('guide chat client', () => {
     )
     expect((await sendGuideMessage([{ role: 'user', content: 'hi' }], 'home'))).toEqual({
       ok: false,
-      error: 'Could not reach the model service.',
+      code: 'transport',
+      error: 'The assistant cannot reach the model service right now.',
+    })
+
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'bad_request', message: 'The model service rejected the request.' }, 502)))
+    expect((await sendGuideMessage([{ role: 'user', content: 'where do I upload my picture?' }], 'protect'))).toEqual({
+      ok: false,
+      code: 'bad_request',
+      error: 'The assistant could not answer that message. Try rephrasing it.',
+    })
+
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'auth' }, 502)))
+    expect((await sendGuideMessage([{ role: 'user', content: 'hi' }], 'home')).ok).toBe(false)
+    expect(guideErrorMessage('auth')).toMatch(/cannot sign in/)
+
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'rate_limited' }, 502)))
+    expect(await sendGuideMessage([{ role: 'user', content: 'hi' }], 'home')).toMatchObject({
+      ok: false,
+      code: 'rate_limited',
+      error: guideErrorMessage('rate_limited'),
+    })
+
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'timeout' }, 502)))
+    expect(await sendGuideMessage([{ role: 'user', content: 'hi' }], 'home')).toMatchObject({
+      ok: false,
+      code: 'timeout',
+      error: guideErrorMessage('timeout'),
     })
 
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'invalid_message' }, 400)))
     expect((await sendGuideMessage([{ role: 'user', content: 'hi' }], 'home'))).toEqual({
       ok: false,
-      error: 'AI is unavailable right now. Please try again shortly.',
+      code: 'invalid_message',
+      error: 'The assistant is unavailable right now. Try again shortly.',
     })
 
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ unexpected: true }, 200)))
     expect((await sendGuideMessage([{ role: 'user', content: 'hi' }], 'home'))).toEqual({
       ok: false,
-      error: 'AI is unavailable right now. Please try again shortly.',
+      code: 'bad_response',
+      error: 'The assistant is unavailable right now. Try again shortly.',
     })
   })
 

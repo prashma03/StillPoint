@@ -103,7 +103,7 @@ describe('protect draft (Back/Next state preservation)', () => {
     expect(draftHasWork({ ...emptyDraft(), fileName: 'a.jpg' })).toBe(true)
     saveProtectDraft(storage, { ...emptyDraft(), fileName: 'a.jpg', step: 9, landmarkLimit: 99 })
     const restored = loadProtectDraft(storage)
-    expect(restored?.step).toBe(4)
+    expect(restored?.step).toBe(3)
     expect(restored?.landmarkLimit).toBeLessThanOrEqual(24)
     clearProtectDraft(storage)
     expect(loadProtectDraft(storage)).toBeNull()
