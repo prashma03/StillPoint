@@ -1176,3 +1176,6 @@ html { scroll-snap-type: none; scroll-behavior: smooth; }
 .privacy-row-control select { background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: 8px; color: var(--text); }
 @media (max-width: 520px) { .privacy-row:has(.btn) { flex-direction: column; align-items: stretch; }.privacy-row:has(.btn) .privacy-row-control { max-width: 100%; align-self: flex-start; } }
 .check-pixel-mask { image-rendering: pixelated; }
+
+.check-detail-remove { position: absolute; z-index: 4; transform: translate(-50%, 12px); padding: 7px 12px; border: 1px solid #54dbe8; border-radius: 8px; background: #101f30; color: #d5f8fa; font: inherit; font-size: 13px; line-height: 1.3; cursor: pointer; box-shadow: 0 3px 12px #0008; }
+.check-detail-remove:hover, .check-detail-remove:focus-visible { background: #20374a; outline: 2px solid #54dbe8; outline-offset: 2px; }

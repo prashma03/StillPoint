@@ -115,3 +115,28 @@ describe('manual rectangular privacy masks', () => {
     expect(screen.queryByRole('button', { name: /Continue to Feature Review/ })).toBeNull()
   })
 })
+
+function DetailHarness() {
+  const [photo, setPhoto] = useState<PhotoInput>(() => ({ ...emptyPhoto(), file: new File(['photo'], 'photo.png', { type: 'image/png' }), graph: { room_objects: [{ name: 'Window', x: 400, y: 400, width: 0, height: 0 }] } }))
+  return <ImageReview title="Original" photo={photo} visible mode="features" onChange={setPhoto} />
+}
+
+describe('selected details', () => {
+  it('shows a floating Remove action and supports undo after removal', () => {
+    render(<DetailHarness />)
+    expect(screen.queryByRole('button', { name: 'Remove Window' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Select Window' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Window' }))
+    expect(screen.queryByRole('button', { name: 'Select Window' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo edit' }))
+    expect(screen.getByRole('button', { name: 'Select Window' })).not.toBeNull()
+  })
+  it.each(['Backspace', 'Delete'])('removes the clicked detail with %s, preserving typing in fields', key => {
+    render(<DetailHarness />)
+    fireEvent.click(screen.getByRole('button', { name: 'Select Window' }))
+    fireEvent.keyDown(screen.getByLabelText('Horizontal'), { key })
+    expect(screen.getByRole('button', { name: 'Select Window' })).not.toBeNull()
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Select Window' }), { key })
+    expect(screen.queryByRole('button', { name: 'Select Window' })).toBeNull()
+  })
+})

@@ -30,6 +30,7 @@ export function Proof() {
   const [open, setOpen] = useState(false)
   const [note, setNote] = useState('')
   const [saved, setSaved] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   async function copySummary() {
     if (!current) return
@@ -42,15 +43,23 @@ export function Proof() {
     }
   }
 
-  function exportReport() {
-    if (!current) return
-    const blob = new Blob([reportText(current)], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'stillpoint-redacted-report.txt'
-    link.click()
-    URL.revokeObjectURL(url)
+  async function exportReport() {
+    if (!current || exporting) return
+    setExporting(true)
+    try {
+      const { buildEvidencePdf } = await import('../lib/pdfReport')
+      // Do not pass thumbnails: Proof exports contain no photograph pixels.
+      const blob = await buildEvidencePdf(current)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `Stillpoint-Redacted-Evidence-${current.id.slice(0, 8)}.pdf`
+      link.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      setCopied('Redacted PDF exported locally. It contains no photograph pixels.')
+    } catch (error) {
+      setCopied(error instanceof Error ? `Could not generate PDF: ${error.message}` : 'Could not generate PDF report.')
+    } finally { setExporting(false) }
   }
 
   function saveReview() {
@@ -127,7 +136,7 @@ export function Proof() {
                 {lines ? 'Hide correspondence lines' : 'Show correspondence lines'}
               </Button></>}
               <Button variant="secondary" onClick={() => void copySummary()}>Copy summary</Button>
-              <Button variant="secondary" onClick={exportReport}>Export redacted report</Button>
+              <Button variant="secondary" disabled={exporting} onClick={() => void exportReport()}>{exporting ? 'Generating PDF…' : 'Export redacted PDF'}</Button>
               <Button onClick={() => setOpen(true)}>Request review</Button>
             </div>
             {copied && <p role="status">{copied}</p>}
