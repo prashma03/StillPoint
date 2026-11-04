@@ -139,6 +139,8 @@ export function createSettingsStore(storage: Memory) {
       return {
         blindMode: parsed?.blindMode !== false,
         pythonEngine: parsed?.pythonEngine === true,
+        maskingPreference: parsed?.maskingPreference === 'manual' ? 'manual' : 'local',
+        externalImagesEnabled: parsed?.externalImagesEnabled === true,
       }
     },
     save(settings: Settings) {
@@ -198,7 +200,7 @@ export function resetPrivateStores() {
   localScenes?.clear()
   localReviews?.clear()
   for (const memory of [browserMemory(), browserSessionMemory()]) {
-    for (const key of [SCENES, REVIEWS, CASE, 'stillpoint.protect.draft.v1']) memory?.removeItem(key)
+    for (const key of [SCENES, REVIEWS, CASE, 'stillpoint.protect.draft.v1', 'stillpoint.trust.v1', 'stillpoint.trust.owner.v1']) memory?.removeItem(key)
   }
   localScenes = null
   localReviews = null

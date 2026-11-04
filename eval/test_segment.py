@@ -33,7 +33,7 @@ from backend.server import (
 
 ONE_PERSON = (
     "<0f>0<|box;x1=100;y1=100;x2=300;y2=500;w=1000;h=1000|>"
-    "<|mask;x=0;y=0;data=10,10,~AAA|>"
+    "<|mask;x=0;y=0;data=27,60,~!!!!M!0c[0o91w?q1!pIH4pPRVp2B3'7`e.ioeAf6-k/#Xd8%dX9x(|>"
 )
 
 
@@ -97,7 +97,7 @@ class SegmentEndpointTests(unittest.TestCase):
         self.assertEqual(status, 503)
         self.assertEqual(body["error"], "model_not_configured")
 
-    def test_success_returns_rects_only(self):
+    def test_success_returns_decoded_pixel_masks_and_compatibility_rects(self):
         os.environ["MODEL_API_KEY"] = "test-key-never-sent"
         with mock.patch.object(
             backend.server, "segment_people", return_value=ONE_PERSON
@@ -114,7 +114,31 @@ class SegmentEndpointTests(unittest.TestCase):
         self.assertEqual(body["model"], "sam-3.1")
         stub.assert_called_once()
         self.assertNotIn("AAA", json.dumps(body))
-        self.assertNotIn("mask", json.dumps(body).lower())
+        self.assertEqual(len(body["masks"]), 1)
+        self.assertEqual(len(body["masks"][0]["data"]), 27 * 60)
+        self.assertEqual(set(body["masks"][0]["data"]), {0, 1})
+
+    def test_missing_decoder_is_actionable(self):
+        os.environ["MODEL_API_KEY"] = "test-key-never-sent"
+        with mock.patch.object(backend.server, "image_segmentation_format", None):
+            status, body = self._post({"image": tiny_png_data_url(), "consent": True})
+        self.assertEqual(status, 503)
+        self.assertEqual(body["error"], "segment_decoder_missing")
+
+    def test_corrupt_mask_returns_safe_error_instead_of_dropping_connection(self):
+        os.environ["MODEL_API_KEY"] = "test-key-never-sent"
+        with mock.patch.object(backend.server, "segment_people", return_value=ONE_PERSON.replace("~!!!!M!0c[0o91w?q1!pIH4pPRVp2B3'7`e.ioeAf6-k/#Xd8%dX9x(", "~AAA")):
+            status, body = self._post({"image": tiny_png_data_url(), "consent": True})
+        self.assertEqual(status, 502)
+        self.assertEqual(body["error"], "invalid_model_output")
+
+    def test_keyed_box_field_order_does_not_reject_pixel_masks(self):
+        os.environ["MODEL_API_KEY"] = "test-key-never-sent"
+        output = ONE_PERSON.replace("x1=100;y1=100;x2=300;y2=500;w=1000;h=1000", "c=0.9;h=1000;w=1000;y2=500;x2=300;y1=100;x1=100")
+        with mock.patch.object(backend.server, "segment_people", return_value=output):
+            status, body = self._post({"image": tiny_png_data_url(), "consent": True})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["count"], 1)
 
     def test_empty_match_returns_zero_rects(self):
         os.environ["MODEL_API_KEY"] = "test-key-never-sent"

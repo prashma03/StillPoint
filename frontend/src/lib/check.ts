@@ -12,6 +12,11 @@ export type CheckInput = {
   suspectLabel: string
   sourceHash: string | null
   suspectHash: string | null
+  detectedKeypoints?: { source: number; suspect: number } | null
+  sourceFile?: { name: string; mimeType: string; sizeBytes: number } | null
+  suspectFile?: { name: string; mimeType: string; sizeBytes: number } | null
+  sourceMaskApplied?: boolean
+  suspectMaskApplied?: boolean
   sourceMask: Mask | null
   maskApplied: boolean
   blind: boolean
@@ -134,6 +139,11 @@ export async function runCheck(input: CheckInput, onStage: (stage: StageUpdate) 
     presentation: present(result),
     sourceHash: input.sourceHash,
     suspectHash: input.suspectHash,
+    detectedKeypoints: input.detectedKeypoints ?? null,
+    sourceFile: input.sourceFile ?? null,
+    suspectFile: input.suspectFile ?? null,
+    sourceMaskApplied: input.sourceMaskApplied ?? input.maskApplied,
+    suspectMaskApplied: input.suspectMaskApplied ?? false,
     hashComparison: hashComparison(input.sourceHash, input.suspectHash),
     maskApplied: input.maskApplied,
     excludedInCheck,

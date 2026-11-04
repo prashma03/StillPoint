@@ -34,6 +34,7 @@ import os
 import re
 import socket
 import time
+from urllib.parse import urlsplit
 from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
@@ -55,11 +56,13 @@ from backend.sam_parse import SegmentationError, coarse_person_rects
 try:
     from meta_sam_parser import (
         CompletedOutcome,
+        InvalidSegmentationMaskError,
         decode_mask_to_raster,
         image_segmentation_format,
     )
 except ImportError:  # The segmentation endpoint reports an actionable error when omitted.
     CompletedOutcome = decode_mask_to_raster = image_segmentation_format = None
+    InvalidSegmentationMaskError = ValueError
 from backend.validate import validate_graph
 
 HOST = "127.0.0.1"
@@ -235,6 +238,19 @@ def _with_request_limits(prompt, max_points, mask):
     return prompt + suffix
 
 
+def public_provider_origin(url):
+    """Identify a recipient in status without proxy credentials or query keys."""
+    try:
+        parsed = urlsplit(url)
+        if parsed.scheme not in ("https", "http") or not parsed.hostname:
+            return "Configured endpoint"
+        host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+        port = f":{parsed.port}" if parsed.port else ""
+        return f"{parsed.scheme}://{host}{port}"
+    except ValueError:
+        return "Configured endpoint"
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, status, payload):
         body = json.dumps(payload).encode("utf-8")
@@ -272,10 +288,12 @@ class Handler(BaseHTTPRequestHandler):
                 "configured": configured,
                 # A stored key is configuration, not proof the model answered.
                 "guide": "configured" if configured else "not_configured",
-                "base_url": BASE_URL,
+                "base_url": public_provider_origin(BASE_URL),
                 "scene_model": SCENE_MODEL,
                 "seg_model": SEG_MODEL,
                 "max_image_bytes": MAX_IMAGE_BYTES,
+                "segmentation_format": "pixel_masks_v1",
+                "segmentation_decoder_ready": image_segmentation_format is not None,
             },
         )
 
@@ -505,11 +523,11 @@ class Handler(BaseHTTPRequestHandler):
         except MetaAPIError as exc:
             self._send(502, {"error": exc.code, "message": str(exc)})
             return
-        except SegmentationError as exc:
+        except (SegmentationError, InvalidSegmentationMaskError, ValueError, TypeError, AttributeError):
             self._send(
                 502,
                 {"error": "invalid_model_output",
-                 "message": f"The segmentation output was not usable: {exc}"},
+                 "message": "SAM did not return a complete, decodable person mask. Retry or use manual masking."},
             )
             return
         self._send(

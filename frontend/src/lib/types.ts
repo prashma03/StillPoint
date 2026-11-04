@@ -99,6 +99,48 @@ export type StoredScene = {
   model?: string | null
 }
 
+export type CorrespondenceStatus = 'candidate' | 'verified' | 'rejected'
+
+export type DetectionSnapshot = {
+  sourceWidth: number
+  sourceHeight: number
+  suspectWidth: number
+  suspectHeight: number
+  sourceFeatures: number
+  suspectFeatures: number
+  sourceCorners: Array<{ x: number; y: number }>
+  suspectCorners: Array<{ x: number; y: number }>
+}
+
+export type ImageCorrespondence = {
+  model: 'homography' | 'none'
+  method: string
+  /** Forward reprojection threshold in the suspected image's analysis pixels. */
+  thresholdPx: number
+  sourceFeatures: number
+  suspectFeatures: number
+  candidates: number
+  verified: number
+  rejected: number
+  meanVerifiedErrorPx: number | null
+  /** Row-major 3×3 map between normalized image coordinates. Not a camera matrix. */
+  matrix: number[] | null
+  matches: Array<{
+    name: string
+    sourceX: number
+    sourceY: number
+    suspectX: number
+    suspectY: number
+    status: CorrespondenceStatus
+    errorPx: number | null
+  }>
+  /** Detected corners that were not kept as a reviewed pair. Coordinates are 0–1 in the analysis image. */
+  unmatchedSource: Array<{ x: number; y: number }>
+  unmatchedSuspect: Array<{ x: number; y: number }>
+  renderedLimit: number
+  limitation: string
+}
+
 export type CaseRecord = {
   photoMethod?: string
   discovery?: { provider: 'TinEye'; domain: string; sourceLinks: string[]; providerRelevance: number | null }
@@ -113,6 +155,12 @@ export type CaseRecord = {
   presentation: Presentation
   sourceHash: string | null
   suspectHash: string | null
+  detectedKeypoints?: { source: number; suspect: number } | null
+  correspondence?: ImageCorrespondence | null
+  sourceFile?: { name: string; mimeType: string; sizeBytes: number } | null
+  suspectFile?: { name: string; mimeType: string; sizeBytes: number } | null
+  sourceMaskApplied?: boolean
+  suspectMaskApplied?: boolean
   hashComparison: string
   maskApplied: boolean
   excludedInCheck: number
@@ -143,4 +191,6 @@ export type ReviewNote = {
 export type Settings = {
   blindMode: boolean
   pythonEngine: boolean
+  maskingPreference?: 'local' | 'manual'
+  externalImagesEnabled?: boolean
 }

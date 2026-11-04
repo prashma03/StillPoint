@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { Button } from './ui'
 import type { PhotoInput } from '../lib/checkSession'
 import type { Mask, RoomObject, SceneGraph } from '../lib/types'
 import type { PixelMask } from '../lib/checkSession'
 import { PersonMaskControls } from './PersonMaskControls'
+import { settingsStore } from '../lib/storage'
 
 export function useObjectUrl(file: Blob | null) {
   const [url, setUrl] = useState<{ file: Blob; url: string } | null>(null)
@@ -15,13 +16,78 @@ export function useObjectUrl(file: Blob | null) {
   return file && url?.file === file ? url.url : null
 }
 
-type Props = { title: string; photo: PhotoInput; visible: boolean; mode: 'preview' | 'privacy' | 'features'; names?: string[]; disabled?: boolean; onChange?: (photo: PhotoInput) => void; onContinue?: () => void }
-export function ImageReview({ title, photo, visible, mode, names = [], disabled = false, onChange, onContinue }: Props) {
-  const url = useObjectUrl(visible ? photo.file : null)
-  const [drawing, setDrawing] = useState(false), [selected, setSelected] = useState(''), [label, setLabel] = useState('')
+type Props = { title: string; photo: PhotoInput; visible: boolean; mode: 'preview' | 'privacy' | 'features'; names?: string[]; disabled?: boolean; onChange?: (photo: PhotoInput) => void }
+export function ImageReview({ title, photo, visible, mode, names = [], disabled = false, onChange }: Props) {
+  const [manualMasking, setManualMasking] = useState(false), [revealed, setRevealed] = useState(false)
+  const [maskMode, setMaskMode] = useState<'automatic' | 'manual'>(() => settingsStore().load().maskingPreference === 'manual' ? 'manual' : 'automatic')
+  const [selectedMask, setSelectedMask] = useState<number | null>(null)
+  const url = useObjectUrl((visible || (mode === 'privacy' && manualMasking && revealed)) ? photo.file : null)
+  const [selected, setSelected] = useState(''), [label, setLabel] = useState('')
   const [history, setHistory] = useState<SceneGraph[]>([])
-  const start = useRef<{ x: number; y: number } | null>(null)
+  const frame = useRef<HTMLDivElement>(null)
+  const gesture = useRef<{ pointerId: number; index: number; kind: 'move' | 'resize'; edges: string; startX: number; startY: number; initial: Mask } | null>(null)
+  const pct = (value: number) => `${Number((value * 100).toFixed(5))}%`
+  useEffect(() => {
+    const manualDefault = settingsStore().load().maskingPreference === 'manual'
+    setManualMasking(manualDefault)
+    setRevealed(false)
+    setMaskMode(manualDefault ? 'manual' : 'automatic')
+    setSelectedMask(manualDefault && photo.masks.length ? photo.masks.length - 1 : null)
+    gesture.current = null
+    if (manualDefault && photo.file && !photo.masks.length) {
+      onChange?.({ ...photo, masks: [{ x: .3, y: .18, w: .4, h: .55 }], confirmed: false })
+      setSelectedMask(0)
+    }
+  }, [photo.file, photo.hash])
   function masks(next: Mask[]) { onChange?.({ ...photo, masks: next, confirmed: false }) }
+  function beginManualMasking() {
+    setManualMasking(true)
+    setMaskMode('manual')
+    if (!photo.masks.length) { masks([{ x: .3, y: .18, w: .4, h: .55 }]); setSelectedMask(0) }
+    else setSelectedMask(Math.max(0, photo.masks.length - 1))
+  }
+  function addMask() {
+    const next = [...photo.masks, { x: .32, y: .2, w: .36, h: .5 }]
+    masks(next); setSelectedMask(next.length - 1); setManualMasking(true)
+  }
+  function pointerPosition(event: ReactPointerEvent) {
+    const rect = frame.current?.getBoundingClientRect()
+    if (!rect || !rect.width || !rect.height) return null
+    return { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) }
+  }
+  function startMaskGesture(event: ReactPointerEvent<HTMLElement>, index: number) {
+    if (disabled || !frame.current) return
+    const position = pointerPosition(event)
+    if (!position) return
+    event.preventDefault(); event.stopPropagation()
+    const handle = (event.target as HTMLElement).closest<HTMLElement>('[data-mask-edge]')
+    const shell = event.currentTarget.closest<HTMLDivElement>('.check-cover')
+    if (!shell) return
+    shell.setPointerCapture(event.pointerId)
+    setSelectedMask(index)
+    gesture.current = { pointerId: event.pointerId, index, kind: handle ? 'resize' : 'move', edges: handle?.dataset.maskEdge ?? '', startX: position.x, startY: position.y, initial: { ...photo.masks[index] } }
+  }
+  function moveMaskGesture(event: React.PointerEvent<HTMLDivElement>) {
+    const active = gesture.current
+    if (!active || active.pointerId !== event.pointerId) return
+    const position = pointerPosition(event)
+    if (!position) return
+    const dx = position.x - active.startX, dy = position.y - active.startY, initial = active.initial
+    let next = { ...initial }
+    if (active.kind === 'move') {
+      next.x = Math.max(0, Math.min(1 - initial.w, initial.x + dx))
+      next.y = Math.max(0, Math.min(1 - initial.h, initial.y + dy))
+    } else {
+      const min = .025
+      let left = initial.x, right = initial.x + initial.w, top = initial.y, bottom = initial.y + initial.h
+      if (active.edges.includes('w')) left = Math.max(0, Math.min(right - min, left + dx))
+      if (active.edges.includes('e')) right = Math.min(1, Math.max(left + min, right + dx))
+      if (active.edges.includes('n')) top = Math.max(0, Math.min(bottom - min, top + dy))
+      if (active.edges.includes('s')) bottom = Math.min(1, Math.max(top + min, bottom + dy))
+      next = { x: left, y: top, w: right - left, h: bottom - top }
+    }
+    masks(photo.masks.map((item, i) => i === active.index ? next : item))
+  }
   function edit(points: RoomObject[]) { setHistory(prev => [...prev.slice(-29), photo.graph]); onChange?.({ ...photo, graph: { room_objects: points } }) }
   function add(x = 500, y = 500) {
     let index = photo.graph.room_objects.length + 1
@@ -32,29 +98,20 @@ export function ImageReview({ title, photo, visible, mode, names = [], disabled 
   }
   const chosen = photo.graph.room_objects.find(p => p.name === selected)
   let overlay: ReactNode = null
-  if (mode === 'privacy' && drawing) overlay = <div className="check-draw" aria-label="Draw a privacy cover" onPointerDown={e => {
-    const r = e.currentTarget.getBoundingClientRect(); start.current = { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }; e.currentTarget.setPointerCapture(e.pointerId)
-  }} onPointerUp={e => {
-    const a = start.current; if (!a) return
-    const r = e.currentTarget.getBoundingClientRect(), x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))
-    if (Math.abs(x - a.x) > .01 && Math.abs(y - a.y) > .01) masks([...photo.masks, { x: Math.min(a.x, x), y: Math.min(a.y, y), w: Math.abs(x - a.x), h: Math.abs(y - a.y) }])
-    start.current = null; setDrawing(false)
-  }} />
   if (mode === 'features') overlay = <svg className="check-feature-layer" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-label={`${title} background features`} onClick={e => {
     if (disabled || e.target !== e.currentTarget) return
     const r = e.currentTarget.getBoundingClientRect(); add(Math.round((e.clientX - r.left) / r.width * 1000), Math.round((e.clientY - r.top) / r.height * 1000))
   }}>{photo.graph.room_objects.map(p => <g key={p.name} role="button" tabIndex={disabled ? -1 : 0} aria-label={`Select ${p.name}`} onClick={() => { if (!disabled) setSelected(p.name) }} onKeyDown={e => { if (!disabled && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setSelected(p.name) } }}><circle cx={p.x + p.width / 2} cy={p.y + p.height / 2} r={selected === p.name ? 14 : 9} /><text x={p.x + p.width / 2 + 14} y={p.y + p.height / 2 - 12}>{p.name}</text></g>)}</svg>
   return <section className={mode === 'preview' ? 'stack' : 'panel stack'} aria-label={`${title} ${mode}`}>
     {mode !== 'preview' && <h3>{title}</h3>}
-    {url ? <div className="check-photo"><img src={url} alt={`${title} for review`} draggable={false} />{overlay}{photo.masks.map((m, i) => <span key={i} className="check-cover" style={{ left: `${m.x * 100}%`, top: `${m.y * 100}%`, width: `${m.w * 100}%`, height: `${m.h * 100}%` }} />)}{photo.pixelMask && <PixelMaskOverlay mask={photo.pixelMask} />}</div> : <div className="check-concealed">{visible ? photo.label ? 'The saved background map is available; no photograph is stored.' : 'Choose a photograph to begin.' : 'Suspicious image concealed. Local processing still works.'}</div>}
-    {mode === 'privacy' && <fieldset className="check-editor-controls" disabled={disabled}>
-      <div className="actions">{url && <Button variant="secondary" disabled={disabled} onClick={() => setDrawing(!drawing)}>{drawing ? 'Cancel drawing' : 'Draw privacy cover'}</Button>}<Button variant="secondary" disabled={disabled} onClick={() => masks([...photo.masks, { x: .3, y: .1, w: .4, h: .8 }])}>Add privacy cover</Button></div>
-      {drawing && <p role="status">Drag across the person or private region. You can also adjust covers with the controls below.</p>}
-      {photo.masks.map((m, i) => <fieldset className="check-mask-controls" key={i}><legend>Cover {i + 1}</legend>{(['x', 'y', 'w', 'h'] as const).map(key => <label key={key}>{({ x: 'Left', y: 'Top', w: 'Width', h: 'Height' })[key]} (%)<input type="range" min={0} max={100} aria-label={`${title} cover ${i + 1} ${key}`} value={Math.round(m[key] * 100)} onChange={e => {
-        const next = { ...m, [key]: Number(e.target.value) / 100 }; next.w = Math.min(next.w, 1 - next.x); next.h = Math.min(next.h, 1 - next.y); masks(photo.masks.map((p, j) => j === i ? next : p))
-      }} /><output>{Math.round(m[key] * 100)}</output></label>)}<Button variant="ghost" disabled={disabled} onClick={() => masks(photo.masks.filter((_, j) => j !== i))}>Remove cover {i + 1}</Button></fieldset>)}
-      {photo.file && <PersonMaskControls photo={photo} visible={visible} onMask={(pixelMask: PixelMask) => onChange?.({ ...photo, pixelMask, confirmed: false })} onContinue={() => onContinue?.()} />}
-      <label className="checkline"><input type="checkbox" disabled={disabled || (!!photo.pixelMask && !visible)} checked={photo.confirmed} onChange={e => onChange?.({ ...photo, confirmed: e.target.checked })} /><span>I reviewed these exclusions, or confirm no cover is needed. {!visible && 'Concealed covers require a privacy warning and explicit reveal before review.'}</span></label>
+    {url ? <div className={`check-photo${manualMasking ? ' check-photo-mask-editing' : ''}`} ref={frame}><img src={url} alt={`${title} for review`} draggable={false} />{overlay}{photo.masks.map((m, i) => <div key={i} className={`check-cover${manualMasking && selectedMask === i ? ' is-selected' : ''}`} role={manualMasking ? 'group' : undefined} aria-label={manualMasking ? `Mask ${i + 1}; drag to move, use handles to resize` : undefined} tabIndex={manualMasking && !disabled ? 0 : undefined} onPointerDown={manualMasking ? e => startMaskGesture(e, i) : undefined} onPointerMove={manualMasking ? moveMaskGesture : undefined} onPointerUp={manualMasking ? e => { if (gesture.current?.pointerId === e.pointerId) gesture.current = null; if (typeof e.currentTarget.hasPointerCapture === 'function' && e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId) } : undefined} onPointerCancel={() => { gesture.current = null }} onKeyDown={manualMasking ? e => { if (disabled) return; const step = e.shiftKey ? .025 : .005; const next = { ...photo.masks[i] }; if (e.key === 'ArrowLeft') next.x = Math.max(0, next.x - step); else if (e.key === 'ArrowRight') next.x = Math.min(1 - next.w, next.x + step); else if (e.key === 'ArrowUp') next.y = Math.max(0, next.y - step); else if (e.key === 'ArrowDown') next.y = Math.min(1 - next.h, next.y + step); else return; e.preventDefault(); masks(photo.masks.map((item, j) => j === i ? next : item)) } : undefined} style={{ left: pct(m.x), top: pct(m.y), width: pct(m.w), height: pct(m.h) }}>
+      {manualMasking && selectedMask === i && !disabled && ['nw','n','ne','e','se','s','sw','w'].map(edge => <button key={edge} className={`check-mask-handle check-mask-handle-${edge}`} data-mask-edge={edge} type="button" aria-label={`Resize mask ${i + 1} ${edge}`} onPointerDown={e => startMaskGesture(e, i)} />)}
+    </div>)}{photo.pixelMask && <PixelMaskOverlay mask={photo.pixelMask} />}</div> : <div className="check-concealed">{visible ? photo.label ? 'The saved background map is available; no photograph is stored.' : 'Choose a photograph to begin.' : 'Suspicious image concealed. Local processing still works.'}</div>}
+    {mode === 'privacy' && <fieldset className="check-editor-controls mask-review-controls" disabled={disabled}>
+      <PersonMaskControls photo={photo} mode={maskMode} canManual={!!photo.file} onMode={next => { setMaskMode(next); if (next === 'automatic' && (photo.pixelMask || photo.masks.length)) setManualMasking(true) }} onManual={beginManualMasking} onAutomatic={() => setManualMasking(true)} onMask={(pixelMask: PixelMask) => onChange?.({ ...photo, pixelMask, confirmed: false })} />
+      {manualMasking && !visible && !revealed && <div className="note" role="status">Blind Mode keeps this photograph concealed. An opaque rectangle is ready. Reveal is optional and only enables you to position it visually.<label className="checkline"><input type="checkbox" checked={revealed} onChange={e => setRevealed(e.target.checked)} /><span>I choose to reveal this suspicious photograph for mask positioning.</span></label></div>}
+      {manualMasking && <div className="mask-rectangle-tools"><div className="actions"><Button variant="secondary" onClick={addMask}>Add Another Rectangle</Button><Button variant="ghost" disabled={selectedMask === null} onClick={() => { if (selectedMask === null) return; masks(photo.masks.filter((_, i) => i !== selectedMask)); setSelectedMask(null) }}>Remove selected</Button><Button variant="ghost" disabled={!photo.masks.length} onClick={() => { masks([]); setSelectedMask(null) }}>Reset rectangles</Button></div><p className="muted">Rectangles are fully opaque and excluded from local feature extraction. Drag one to move it; use its cyan handles to resize.</p></div>}
+      <label className="checkline mask-confirm"><input type="checkbox" disabled={disabled} checked={photo.confirmed} onChange={e => onChange?.({ ...photo, confirmed: e.target.checked })} /><span>I reviewed this mask and confirm the areas to exclude. {!visible && 'The concealed image has not been visually reviewed.'}</span></label>
     </fieldset>}
     {mode === 'features' && <fieldset className="check-editor-controls stack" disabled={disabled}>
       <label className="field"><span>Detail to adjust or remove</span><select value={selected} onChange={e => setSelected(e.target.value)}><option value="">Select a detail</option>{photo.graph.room_objects.map(p => <option key={p.name}>{p.name}</option>)}</select></label>

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { backgroundOnly, matchPhotographs, photoFileError, type Pixels } from './photoCompare'
+import { backgroundOnly, buildCorrespondence, matchPhotographs, photoFileError, type Pixels } from './photoCompare'
 import { runCheck } from './check'
 import { clearCheckSession, emptyCheck, getCheckSession, saveCheckSession, getProofMedia, setProofMedia, proofNeedsViewingChoice } from './checkSession'
 import { reportText } from './report'
@@ -85,6 +85,26 @@ describe('local photo comparison', () => {
     const result = await runCheck({ source: graph, suspect: edited, sourceLabel: 'a', suspectLabel: 'b', sourceHash: null, suspectHash: null, sourceMask: null, maskApplied: false, blind: false, sample: false }, () => {})
     vi.unstubAllGlobals()
     expect(result.ok && result.record.result.aligned_points).toBe(0)
+  })
+  it('verifies identical measured corners and excludes a fully masked image', () => {
+    const original = textured()
+    const matched = matchPhotographs(original, original, [], [])
+    expect(matched.detected[0]).toBeGreaterThanOrEqual(4)
+    expect(matched.correspondence.candidates).toBeGreaterThanOrEqual(4)
+    expect(matched.correspondence.verified).toBeGreaterThanOrEqual(4)
+    expect(matched.correspondence.matrix).toHaveLength(9)
+    expect(matched.correspondence.matches.every((match) => match.sourceX >= 0 && match.sourceX <= 1)).toBe(true)
+    const covered = matchPhotographs(original, original, [{ x: 0, y: 0, w: 1, h: 1 }], [])
+    expect(covered.correspondence.matches).toEqual([])
+    expect(covered.correspondence.model).toBe('none')
+  })
+  it('keeps reviewed coordinate edits in the homography instead of the earlier proposals', () => {
+    const source = { room_objects: [{ x: 200, y: 200 }, { x: 700, y: 220 }, { x: 180, y: 720 }, { x: 760, y: 680 }].map((point, index) => ({ name: `Detail ${index}`, ...point, width: 0, height: 0 })) }
+    const suspect = { room_objects: source.room_objects.map((point) => ({ ...point, x: point.x + 40 })) }
+    const fit = buildCorrespondence(source, suspect, { sourceWidth: 640, sourceHeight: 480, suspectWidth: 640, suspectHeight: 480, sourceFeatures: 10, suspectFeatures: 10, sourceCorners: [], suspectCorners: [] })
+    expect(fit.verified).toBe(4)
+    expect(fit.rejected).toBe(0)
+    expect(fit.meanVerifiedErrorPx).toBeLessThan(2)
   })
   it('retains a tab-memory draft for returning from Proof and clears draft/media explicitly', () => {
     const draft = { ...emptyCheck(), step: 5, caseId: 'case-1' }

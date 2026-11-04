@@ -4,6 +4,7 @@ import { useCaseRecord } from '../components/case'
 import { EvidenceDiagram } from '../components/EvidenceDiagram'
 import { PhotoProof } from '../components/PhotoProof'
 import EvidenceConnections from '../components/proof/evidence/EvidenceConnections'
+import { ImageEvidence } from '../components/proof/evidence/ImageEvidence'
 import { Button, Dialog, MetricList, PageHeader, usePageTitle, useReducedMotion } from '../components/ui'
 import { PROOF_LIMITS, PUNISHMENT_RULE, SCIENCE_LIMIT, mappingLabel, metricRows, reportText, verdictExplanation } from '../lib/report'
 import { buildSample } from '../lib/sampleCase'
@@ -22,7 +23,7 @@ export function Proof() {
   )
   const sessionRecord = caseId && record?.id !== caseId ? null : record
   const current = sampleRecord ?? sessionRecord
-  const [mode, setMode] = useState<'comparison' | 'demo'>('comparison')
+  const [mode, setMode] = useState<'comparison' | 'demo'>(current ? 'comparison' : 'demo')
   const [lines, setLines] = useState(true)
   const [replay, setReplay] = useState(0)
   const [copied, setCopied] = useState('')
@@ -71,23 +72,23 @@ export function Proof() {
       <PageHeader
         eyebrow="Proof"
         title="Evidence without exposure"
-        lede="Explore measured scene-map correspondences from your check, or switch to a clearly labeled 3D concept demonstration."
+        lede="Explore the correspondences from this comparison, or open the simulated room separately."
       />
       <div className="proof-mode-switch" role="group" aria-label="Choose evidence visualization">
-        <button type="button" aria-pressed={mode === 'comparison'} onClick={() => setMode('comparison')}>My image comparison</button>
-        <button type="button" aria-pressed={mode === 'demo'} onClick={() => setMode('demo')}>How it works · 3D</button>
+        <button type="button" aria-pressed={mode === 'comparison'} onClick={() => setMode('comparison')}>My Image Comparison</button>
+        <button type="button" aria-pressed={mode === 'demo'} onClick={() => setMode('demo')}>Concept Demo</button>
       </div>
       {mode === 'comparison' ? <section className="proof-evidence proof-evidence-feature" aria-labelledby="evidence-connects-title">
         <div className="proof-evidence-heading">
           <div>
-            <p className="eyebrow">Your comparison · scene-map correspondences</p>
-            <h2 id="evidence-connects-title">What matched in your scene maps</h2>
+            <p className="eyebrow">My Image Comparison</p>
+            <h2 id="evidence-connects-title">{current?.correspondence ? 'Correspondences from this comparison' : 'What matched in your scene maps'}</h2>
           </div>
-          <p className="muted">These points and lines come from the actual reviewed coordinates and alignment result. The guided photo workflow can propose local corner and patch correspondences, but does not fit a camera transformation. Temporary photographs, when available, appear below.</p>
+          <p className="muted">{current?.correspondence ? 'Cyan lines are homography inliers. Amber lines are unverified patch matches. Coral lines were rejected. Blue-gray points are detected corners that were not kept as pairs. This is a 2.5D presentation, not a reconstructed room.' : 'These points come from the reviewed scene map. Image-plane matching is shown when this comparison includes local photograph features.'}</p>
         </div>
-        {current ? <><EvidenceDiagram source={current.sourceGraph} suspect={current.suspectGraph} residuals={current.result.residuals} showLines={lines} replayKey={replay} reduced={reduced} sourceCaption="Original scene map" suspectCaption="Compared scene map" responsive /><div className="proof-connection-legend"><span><i className="legend-cyan" />Aligned scene-map points</span><span><i className="legend-amber" />Compared points outside the alignment threshold</span><span>Positions come from reviewed coordinate maps; local photo proposals remain experimental.</span></div>{current.sample && <p className="note">Illustrative sample scene graphs. These are not uploaded photographs.</p>}</> : <div className="panel"><h2>No comparison is open</h2><p className="muted">Run a Check to inspect its actual scene-map measurements here. Stillpoint will not invent image feature points when they are unavailable.</p><div className="actions"><Button to="/check">Start a check</Button><Button variant="secondary" onClick={() => setMode('demo')}>View the simulated 3D demonstration</Button></div></div>}
+        {current?.correspondence ? <ImageEvidence key={current.id} record={current} /> : current ? <><EvidenceDiagram source={current.sourceGraph} suspect={current.suspectGraph} residuals={current.result.residuals} showLines={lines} replayKey={replay} reduced={reduced} sourceCaption="Original scene map" suspectCaption="Compared scene map" responsive /><div className="proof-connection-legend"><span><i className="legend-cyan" />Aligned scene-map points</span><span><i className="legend-amber" />Compared points outside the alignment threshold</span></div>{current.sample && <p className="note">Illustrative sample scene graphs. These are not uploaded photographs.</p>}</> : <div className="panel"><h2>No comparison is open</h2><p className="muted">Run a Check to inspect its measured correspondences. Stillpoint will not invent image feature points.</p><div className="actions"><Button to="/check">Start a check</Button><Button variant="secondary" onClick={() => setMode('demo')}>Open Concept Demo</Button></div></div>}
       </section> : <section className="proof-evidence proof-evidence-feature" aria-labelledby="evidence-connects-title">
-        <div className="proof-evidence-heading"><div><p className="eyebrow">How the Evidence Connects · Simulated</p><h2 id="evidence-connects-title">Spatial correspondence, made visible.</h2></div><p className="muted">Simulated conceptual demonstration — not reconstructed from uploaded photographs or a verification result.</p></div>
+        <div className="proof-evidence-heading"><div><p className="eyebrow">Concept Demo</p><h2 id="evidence-connects-title">Spatial correspondence, made visible.</h2></div><p className="muted">Conceptual visualization — simulated data, not reconstructed from uploaded photographs.</p></div>
         <EvidenceConnections />
       </section>}
       <div className={`proof-layout${current ? '' : ' proof-empty'}`}>

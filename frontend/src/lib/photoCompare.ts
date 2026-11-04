@@ -3,7 +3,8 @@
  * Coordinates feed the existing center-distance engine, not a homography claim.
  */
 import { harrisResponse, rgbaToGrayscale } from './detect'
-import type { Mask, RoomObject, SceneGraph } from './types'
+import { verifyHomography, type PlanePoint } from './homography'
+import type { DetectionSnapshot, ImageCorrespondence, Mask, RoomObject, SceneGraph } from './types'
 import type { PixelMask } from './checkSession'
 
 export type Pixels = { data: Uint8ClampedArray; width: number; height: number }
@@ -69,6 +70,58 @@ function corners(image: Pixels, masks: Mask[], pixelMask?: PixelMask | null): Co
   return selected
 }
 
+const RENDER_LIMIT = 64
+
+function near(point: PlanePoint, kept: PlanePoint[]) {
+  return kept.some((other) => Math.hypot(other.x - point.x, other.y - point.y) < 0.02)
+}
+
+export function buildCorrespondence(source: SceneGraph, suspect: SceneGraph, detection: DetectionSnapshot | null): ImageCorrespondence {
+  const byName = new Map(suspect.room_objects.map((point) => [point.name.toLowerCase(), point]))
+  const pairs = source.room_objects.flatMap((point) => {
+    const other = byName.get(point.name.toLowerCase())
+    return other ? [{ name: point.name, source: point, suspect: other }] : []
+  })
+  const width = detection?.suspectWidth ?? 1000
+  const height = detection?.suspectHeight ?? 1000
+  const fit = verifyHomography(
+    pairs.map((pair) => ({ x: (pair.source.x + pair.source.width / 2) / 1000, y: (pair.source.y + pair.source.height / 2) / 1000 })),
+    pairs.map((pair) => ({ x: (pair.suspect.x + pair.suspect.width / 2) / 1000, y: (pair.suspect.y + pair.suspect.height / 2) / 1000 })),
+    width,
+    height,
+  )
+  const keptSource = pairs.map((pair) => ({ x: (pair.source.x + pair.source.width / 2) / 1000, y: (pair.source.y + pair.source.height / 2) / 1000 }))
+  const keptSuspect = pairs.map((pair) => ({ x: (pair.suspect.x + pair.suspect.width / 2) / 1000, y: (pair.suspect.y + pair.suspect.height / 2) / 1000 }))
+  const scaleNote = detection
+    ? `Errors are forward reprojection error in the ${width}×${height} analysis image of the suspected photograph. The map is a 2D homography between image planes, not measured room depth.`
+    : 'Pixel dimensions were not recorded, so the fit uses the 0–1000 scene map as its pixel space. It is still a 2D homography, not measured room depth.'
+  return {
+    model: fit.matrix ? 'homography' : 'none',
+    method: fit.method,
+    thresholdPx: fit.thresholdPx,
+    sourceFeatures: detection?.sourceFeatures ?? source.room_objects.length,
+    suspectFeatures: detection?.suspectFeatures ?? suspect.room_objects.length,
+    candidates: fit.candidates,
+    verified: fit.verified,
+    rejected: fit.rejected,
+    meanVerifiedErrorPx: fit.meanVerifiedErrorPx,
+    matrix: fit.matrix,
+    matches: pairs.map((pair, index) => ({
+      name: pair.name,
+      sourceX: (pair.source.x + pair.source.width / 2) / 1000,
+      sourceY: (pair.source.y + pair.source.height / 2) / 1000,
+      suspectX: (pair.suspect.x + pair.suspect.width / 2) / 1000,
+      suspectY: (pair.suspect.y + pair.suspect.height / 2) / 1000,
+      status: fit.statuses[index] ?? 'candidate',
+      errorPx: fit.errorPx[index] ?? null,
+    })),
+    unmatchedSource: (detection?.sourceCorners ?? []).filter((point) => !near(point, keptSource)).slice(0, 40),
+    unmatchedSuspect: (detection?.suspectCorners ?? []).filter((point) => !near(point, keptSuspect)).slice(0, 40),
+    renderedLimit: RENDER_LIMIT,
+    limitation: `${scaleNote} A consistent homography can support shared scene structure. It cannot establish manipulation, identity, consent, or who created an image.`,
+  }
+}
+
 export function matchPhotographs(original: Pixels, compared: Pixels, originalMasks: Mask[], comparedMasks: Mask[], originalPixelMask?: PixelMask | null, comparedPixelMask?: PixelMask | null) {
   const a = corners(original, originalMasks, originalPixelMask), b = corners(compared, comparedMasks, comparedPixelMask)
   const distance = (p: Corner, q: Corner) => p.descriptor.reduce((sum, v, i) => sum + (v - q.descriptor[i]) ** 2, 0)
@@ -82,7 +135,17 @@ export function matchPhotographs(original: Pixels, compared: Pixels, originalMas
     const name = `Detail ${source.length + 1}`
     const point = (corner: Corner, image: Pixels): RoomObject => ({ name, x: corner.x / image.width * 1000, y: corner.y / image.height * 1000, width: 0, height: 0, pointOrigin: 'local', confirmed: false })
     source.push(point(p, original)); suspect.push(point(q, compared))
-    if (source.length >= 24) break
+    if (source.length >= 48) break
   }
-  return { source: { room_objects: source }, suspect: { room_objects: suspect }, detected: [a.length, b.length] }
+  const detection: DetectionSnapshot = {
+    sourceWidth: original.width,
+    sourceHeight: original.height,
+    suspectWidth: compared.width,
+    suspectHeight: compared.height,
+    sourceFeatures: a.length,
+    suspectFeatures: b.length,
+    sourceCorners: a.map((corner) => ({ x: corner.x / original.width, y: corner.y / original.height })),
+    suspectCorners: b.map((corner) => ({ x: corner.x / compared.width, y: corner.y / compared.height })),
+  }
+  return { source: { room_objects: source }, suspect: { room_objects: suspect }, detected: [a.length, b.length] as [number, number], detection, correspondence: buildCorrespondence({ room_objects: source }, { room_objects: suspect }, detection) }
 }

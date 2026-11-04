@@ -36,10 +36,15 @@ def parse_boxes(output_text):
         raise SegmentationError("Segmentation output must be text.")
     if not output_text.strip():
         return []
-    boxes = [
-        tuple(int(value) for value in match)
-        for match in _BOX_RE.findall(output_text)
-    ]
+    boxes = []
+    # SAM fields are keyed, not positional; documented responses may reorder
+    # them or include confidence/extra fields. Do not reject usable masks for that.
+    for token in re.findall(r"<\|box;([^|]*)\|>", output_text):
+        fields = dict(part.strip().split("=", 1) for part in token.split(";") if "=" in part)
+        try:
+            boxes.append(tuple(int(fields[key].strip()) for key in ("x1", "y1", "x2", "y2", "w", "h")))
+        except (KeyError, ValueError):
+            continue
     if not boxes:
         raise SegmentationError("No person boxes were found in the output.")
     return boxes

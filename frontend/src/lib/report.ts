@@ -72,6 +72,13 @@ export function reportText(record: CaseRecord): string {
     `Matched reference points: ${record.result.aligned_points} of ${record.result.usable_points}`,
     `Geometric agreement: ${record.result.agreement_percent.toFixed(1)}%`,
     `Alignment residual: ${formatResidual(record.result.mean_residual)} (threshold ${record.result.alignment_threshold} on a 0–1000 scale)`,
+    ...(record.correspondence ? [
+      `Homography model: ${record.correspondence.model}. ${record.correspondence.method}.`,
+      `Features retained: ${record.correspondence.sourceFeatures} original, ${record.correspondence.suspectFeatures} suspected (strongest Harris corners, at most 100 each).`,
+      `Patch candidates: ${record.correspondence.candidates}. Verified inliers: ${record.correspondence.verified}. Rejected: ${record.correspondence.rejected}.`,
+      `Mean verified reprojection: ${record.correspondence.meanVerifiedErrorPx == null ? 'not available' : `${record.correspondence.meanVerifiedErrorPx.toFixed(2)} px`} (threshold ${record.correspondence.thresholdPx} px).`,
+      record.correspondence.limitation,
+    ] : []),
     `Background coverage in source graph: ${formatCoverage(record.result.source_coverage_percent)}`,
     `Background coverage in suspect graph: ${formatCoverage(record.result.suspect_coverage_percent)}`,
     `Shift pattern: ${shiftLabel(record.result)} (describes movement only; never changes the verdict)`,

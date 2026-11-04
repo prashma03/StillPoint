@@ -1,5 +1,6 @@
 import { guideErrorMessage } from './guide'
 import type { Mask } from './types'
+import { settingsStore } from './storage'
 
 /** Local-backend AI bridge. The browser never holds an API key. */
 
@@ -7,7 +8,7 @@ export const AI_BASE = 'http://127.0.0.1:8787'
 const AI_TIMEOUT_MS = 75000
 
 export type AIStatus =
-  | { ok: true; configured: boolean; scene_model: string; seg_model: string }
+  | { ok: true; configured: boolean; scene_model: string; seg_model: string; provider_origin?: string; segmentation_decoder_ready?: boolean }
   | { ok: false; error: string }
 
 export type GuideMessage = { role: 'user' | 'assistant'; content: string }
@@ -56,6 +57,8 @@ export function userSafeError(code: string | undefined, fallback: string, kind: 
         : 'AI mapping is not configured on this computer. The local backend needs a model API key — manual mapping below still works.'
     case 'segment_decoder_missing':
       return 'The local backend needs the SAM mask decoder. Install the packages in backend/requirements.txt and restart it, or use manual masking.'
+    case 'segment_backend_outdated':
+      return 'Person detection needs the updated Stillpoint backend. Restart the backend after installing backend/requirements.txt, then retry. Your current mask has not changed.'
     case 'consent_required':
       return 'Consent is required before any image leaves this page.'
     case 'invalid_image':
@@ -107,6 +110,8 @@ export async function getAIStatus(): Promise<AIStatus> {
       configured: body.configured,
       scene_model: typeof body.scene_model === 'string' ? body.scene_model : 'unknown',
       seg_model: typeof body.seg_model === 'string' ? body.seg_model : 'unknown',
+      provider_origin: (() => { try { return new URL(String(body.base_url)).origin } catch { return 'Unknown configured endpoint' } })(),
+      segmentation_decoder_ready: body.segmentation_decoder_ready === true,
     }
   } catch {
     return { ok: false, error: 'The local backend is not running.' }
@@ -153,14 +158,16 @@ function readRects(value: unknown): SegmentRect[] | null {
   return rects
 }
 
-export async function segmentPhoto(dataUrl: string): Promise<SegmentOutcome> {
+export async function segmentPhoto(dataUrl: string, consent = false, signal?: AbortSignal): Promise<SegmentOutcome> {
+  if (!consent) return { ok: false, error: userSafeError('consent_required', '', 'segment') }
+  if (!settingsStore().load().externalImagesEnabled) return { ok: false, error: 'External image AI is disabled in Settings. Local and manual masking remain available.' }
   let response: Response
   try {
     response = await fetch(`${AI_BASE}/api/segment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: dataUrl, consent: true }),
-      signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(AI_TIMEOUT_MS)]) : AbortSignal.timeout(AI_TIMEOUT_MS),
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'TimeoutError') {
@@ -175,6 +182,9 @@ export async function segmentPhoto(dataUrl: string): Promise<SegmentOutcome> {
   }
   const masks = readMasks(body.masks)
   const rects = readRects(body.rects)
+  if (body.masks === undefined && Array.isArray(body.rects)) {
+    return { ok: false, error: userSafeError('segment_backend_outdated', '', 'segment') }
+  }
   if (!masks || !rects || typeof body.count !== 'number' || body.count !== masks.length) {
     return { ok: false, error: userSafeError('invalid_model_output', '', 'segment') }
   }
@@ -187,14 +197,16 @@ export async function segmentPhoto(dataUrl: string): Promise<SegmentOutcome> {
   }
 }
 
-export async function analyzePhoto(dataUrl: string, mask: Mask | null, maxPoints?: number): Promise<AIAnalysis> {
+export async function analyzePhoto(dataUrl: string, mask: Mask | null, maxPoints?: number, consent = false, signal?: AbortSignal): Promise<AIAnalysis> {
+  if (!consent) return { ok: false, error: userSafeError('consent_required', '') }
+  if (!settingsStore().load().externalImagesEnabled) return { ok: false, error: 'External image AI is disabled in Settings. Local and manual feature mapping remain available.' }
   let response: Response
   try {
     response = await fetch(`${AI_BASE}/api/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildAnalyzeBody(dataUrl, mask, maxPoints)),
-      signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(AI_TIMEOUT_MS)]) : AbortSignal.timeout(AI_TIMEOUT_MS),
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'TimeoutError') {

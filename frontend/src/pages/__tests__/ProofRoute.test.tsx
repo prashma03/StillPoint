@@ -22,9 +22,10 @@ describe('Proof route', () => {
     ))
 
     expect(html).toContain('id="evidence-connects-title"')
-    expect(html).toContain('My image comparison')
-    expect(html).toContain('How it works · 3D')
-    expect(html).toContain('View the simulated 3D demonstration')
+    expect(html).toContain('My Image Comparison')
+    expect(html).toContain('Concept Demo')
+    expect(html).toContain('Conceptual visualization — simulated data, not reconstructed from uploaded photographs.')
+    expect(html).toContain('Simulated 3D evidence visualization')
     expect(html).toContain('No proof is open')
   })
 })

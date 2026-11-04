@@ -6,8 +6,8 @@
  * step) in sessionStorage so revisiting restores it, while image pixels are
  * refused outright: re-selecting the photo re-verifies by content hash.
  *
- * sessionStorage is tab-scoped and dies with the tab: in-progress data stays
- * within the current session and never lands in permanent browser storage.
+ * App bootstrap clears this draft on every full reopen or refresh, even if
+ * the browser restores sessionStorage. In-app navigation can still restore it.
  */
 import type { SegmentRect } from './ai'
 import { clampLimit } from './landmarks'

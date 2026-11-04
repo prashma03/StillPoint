@@ -114,7 +114,10 @@ export async function redactImage(
       const pixels = layerContext.createImageData(pixelMask.width, pixelMask.height)
       for (let i = 0; i < pixelMask.data.length; i++) if (pixelMask.data[i]) { const offset = i * 4; pixels.data[offset] = 0; pixels.data[offset + 1] = 0; pixels.data[offset + 2] = 0; pixels.data[offset + 3] = 255 }
       layerContext.putImageData(pixels, 0, 0)
+      const previousSmoothing = ctx.imageSmoothingEnabled
+      ctx.imageSmoothingEnabled = false // Keep mask pixels opaque when scaling; never blend private edges.
       ctx.drawImage(layer, 0, 0, w, h)
+      ctx.imageSmoothingEnabled = previousSmoothing
       layer.width = 0; layer.height = 0
     }
     const dataUrl = canvas.toDataURL('image/jpeg', REDACT_QUALITY)

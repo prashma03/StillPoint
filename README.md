@@ -453,3 +453,78 @@ This startup rule applies to all users for now: account-backed saving must be
 implemented explicitly in the future, and is not enabled merely by logging in.
 This startup rule supersedes earlier descriptions of drafts/reports surviving
 refresh elsewhere in this document.
+
+## Settings and audited privacy controls
+
+Settings is organized into Privacy & Protection, AI Processing, My Data,
+Account & Security, and expandable Advanced Settings. Disclosures list local
+operations, external transfers, actual storage, and deletion limits. Model
+configuration is not presented as proof of successful model access. Provider
+status exposes the endpoint origin only, stripping proxy credentials and query
+parameters. Restart the Python backend to pick up that status hardening.
+
+Automatic masking now prefers **real on-device MediaPipe SelfieSegmenter** in
+Check and the existing Protect/advanced masking tools. Runtime 1.2.2, module-WASM,
+and a pinned official model are bundled under `frontend/public/models/person/`.
+No CDN or third-party request is needed at inference time. A browser worker
+processes local pixels and returns the model's foreground-confidence channel
+as a binary mask (0.35 threshold). The mask is not an identity detector or an
+instance count. Small, distant, occluded, thin, or multiple people may be missed;
+review and refine with the existing opaque rectangles. Unsupported browsers or
+failed model loads stay on manual masking; they NEVER fall back externally.
+Pixel-mask redaction uses nearest-neighbor scaling to avoid blending its edges.
+Model provenance, hash, license and limitations are next to the bundled assets.
+
+External image AI is off by default. Its Settings toggle only enables tool
+availability; it never records upload consent. The actual request bridges
+refuse transfers without BOTH availability and action-specific consent. External
+SAM receives an unmasked, resized photo for person detection; AI feature mapping
+receives a masked/redacted copy whose background can still identify someone.
+Their recipient is the configured Meta backend endpoint, shown in the action
+and Settings. Consent resets for new photos/actions; cancellation aborts browser
+requests and discards late responses. Data already received externally cannot
+be recalled. Never use external tools for intimate imagery.
+
+Local decoding, hashing, masking, feature extraction/matching, geometric map
+comparison, previews and report generation remain on device. Optional Python
+comparison sends graphs to localhost. Discover remains a separate, consented
+TinEye search that uploads the original. Guide sends typed conversation text
+and a page label to its configured provider, not image bytes. Settings status
+checks send no photographs and do not run inference.
+
+Functional confirmed deletion controls cover current comparison/photos/Proof
+media, local notes and Trust records, original registrations plus Protect drafts,
+and the entire private session. Auth/preferences are preserved by private-session
+cleanup. Identity boundaries and startup cleanup now clear Trust records too.
+The established full-reopen/refresh cleanup policy remains; account image saving
+is not implemented. Settings' Blind Mode preference now actually applies to
+new guided checks; an explicit viewing acknowledgment is still mandatory.
+
+Only supported account controls appear: account information, Supabase password
+recovery request, and current-session sign-out for authenticated users. No cloud
+photo vault, provider deletion, other-device session administration, or download
+inventory is claimed. Exported reports, browser/OS backups, and provider retention
+are outside these local deletion controls. Cleanup releases app references;
+it does not guarantee forensic erasure from RAM or storage.
+
+Validation includes real headless Chrome execution of the bundled model on a
+generated harmless image, asserting binary output and no image POST/external
+asset request, plus desktop (1440px) and mobile (390px) Settings overflow checks
+and screenshots. Unit/DOM tests cover preferences, manual masking, local failure,
+no external fallback, action-specific consent, cancellation, data deletion and
+confirmation. Generated fixtures are integration checks, not a real-world
+segmentation accuracy study. Model/runtime cold loading can take time and uses
+about 15 MB of same-origin WASM assets; browser caches may retain model files,
+which contain no user photographs.
+
+Run: `cd frontend; npm test; npm run build; npx playwright test`.
+The Playwright configuration uses an isolated Vite cache and installed Chrome
+on Windows; set PLAYWRIGHT_CHROMIUM_EXECUTABLE for another executable.
+Backend privacy/status, consent and segmentation tests:
+`python -m unittest backend.test_privacy_status eval.test_segment backend.test_chat`.
+
+Main changed files: Settings.tsx, PersonMaskControls.tsx, SegmentAssist.tsx,
+AIAssist.tsx, ImageReview.tsx, ai.ts, checkSession.ts, storage.ts, types.ts,
+redact.ts, privacyControls.ts, localSegmentation.ts, localSegmentation.worker.ts,
+personMaskPixels.ts, styles.css, backend/server.py, bundled model/runtime assets,
+package files, Vite/Playwright configuration, privacy tests, and this README.
