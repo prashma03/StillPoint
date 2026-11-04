@@ -100,6 +100,7 @@ export type StoredScene = {
 }
 
 export type CaseRecord = {
+  discovery?: { provider: 'TinEye'; domain: string; sourceLinks: string[]; providerRelevance: number | null }
   id: string
   createdAt: string
   sourceLabel: string

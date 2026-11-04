@@ -10,7 +10,7 @@ vi.mock('../../components/proof/evidence/EvidenceConnections', () => ({
 }))
 
 describe('Proof route', () => {
-  it('renders Evidence Connections for a guest with no saved comparison', () => {
+  it('invites a guest to start a check and keeps the simulated mode available', () => {
     const html = renderToStaticMarkup(createElement(
       MemoryRouter,
       { initialEntries: ['/proof'] },
@@ -22,8 +22,9 @@ describe('Proof route', () => {
     ))
 
     expect(html).toContain('id="evidence-connects-title"')
-    expect(html).toContain('data-testid="evidence-connections-mounted"')
-    expect(html).toContain('Simulated 3D evidence visualization')
+    expect(html).toContain('My image comparison')
+    expect(html).toContain('How it works · 3D')
+    expect(html).toContain('View the simulated 3D demonstration')
     expect(html).toContain('No proof is open')
   })
 })

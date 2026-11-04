@@ -57,6 +57,12 @@ export function reportText(record: CaseRecord): string {
     '',
     `Source: ${record.sourceLabel}`,
     `Suspect: ${record.suspectLabel}`,
+    ...(record.discovery ? [
+      `Discovery provider: ${record.discovery.provider}; domain: ${record.discovery.domain}`,
+      `Provider relevance: ${record.discovery.providerRelevance ?? 'not supplied'} (not geometric verification)`,
+      ...record.discovery.sourceLinks.map(link => `Candidate source: ${link}`),
+      'The local candidate file and its source association were supplied by the user; Stillpoint did not authenticate that association.',
+    ] : []),
     `Engine verdict: ${record.result.verdict}`,
     record.presentation.summary,
     record.presentation.note ?? '',

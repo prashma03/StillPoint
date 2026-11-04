@@ -38,6 +38,7 @@ import time
 from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
+from backend import discover
 
 from backend.align import compare_graphs
 from backend.meta_client import (
@@ -250,6 +251,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if self.path == "/api/discover/status":
+            self._send(200, discover.status())
+            return
         if self.path != "/api/status":
             self._send(404, {"error": "Not found"})
             return
@@ -281,7 +285,9 @@ class Handler(BaseHTTPRequestHandler):
         return body
 
     def do_POST(self):
-        if self.path == "/api/compare":
+        if self.path == "/api/discover/search":
+            self._handle_discover()
+        elif self.path == "/api/compare":
             self._handle_compare()
         elif self.path == "/api/analyze":
             self._handle_analyze()
@@ -291,6 +297,39 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_chat()
         else:
             self._send(404, {"error": "Not found"})
+
+    def _handle_discover(self):
+        # JSON-only local browser calls; reject cross-origin submission.
+        if self.headers.get("Origin") not in ALLOWED_ORIGINS:
+            self._send(403, {"error": "origin_denied"})
+            return
+        if self.headers.get_content_type() != "application/json":
+            self._send(415, {"error": "unsupported_content_type"})
+            return
+        if _analysis_rate_limited(self.client_address[0]):
+            self._send(429, {"error": "rate_limited", "message": "Wait a minute before searching again."})
+            return
+        self.connection.settimeout(35)
+        try:
+            body = self._read_json(ANALYZE_MAX_BYTES)
+            if not isinstance(body, dict):
+                self._send(400, {"error": "invalid_request", "message": "Expected a bounded JSON image request."})
+                return
+            if body.get("consent") is not True or body.get("non_sensitive") is not True:
+                self._send(403, {"error": "consent_required", "message": "Authorize TinEye upload and confirm this is non-intimate, non-sensitive imagery."})
+                return
+            raw, mime = _decode_image(body.get("image"))
+            # Unlike the legacy decoder, require declared and actual types to agree.
+            actual = "image/jpeg" if raw[:3] == b"\xff\xd8\xff" else "image/png" if raw[:8] == b"\x89PNG\r\n\x1a\n" else "image/webp"
+            if mime != actual:
+                raise ValueError("Image content type does not match its bytes.")
+            self._send(200, discover.search(raw, mime))
+        except discover.DiscoveryError as exc:
+            self._send(exc.status, {"error": exc.code, "message": str(exc)})
+        except (ValueError, socket.timeout):
+            self._send(400, {"error": "invalid_image", "message": "Invalid image, size, content type, or request timeout."})
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # Browser cancelled; no result or image is retained.
 
     def _handle_compare(self):
         body = self._read_json(MAX_BYTES)
@@ -501,6 +540,7 @@ class Handler(BaseHTTPRequestHandler):
 # Only these keys are ever read from a .env file. Real environment
 # variables always win over the file.
 DOTENV_KEYS = (
+    "TINEYE_API_KEY",
     "MODEL_API_KEY",
     "META_BASE_URL",
     "SCENE_MODEL",

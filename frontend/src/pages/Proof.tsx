@@ -15,11 +15,14 @@ export function Proof() {
   const [params] = useSearchParams()
   const { record } = useCaseRecord()
   const sample = params.get('sample')
+  const caseId = params.get('case')
   const sampleRecord = useMemo(
     () => (sample === 'derivative' || sample === 'moved' ? buildSample(sample) : null),
     [sample],
   )
-  const current = sampleRecord ?? record
+  const sessionRecord = caseId && record?.id !== caseId ? null : record
+  const current = sampleRecord ?? sessionRecord
+  const [mode, setMode] = useState<'comparison' | 'demo'>('comparison')
   const [lines, setLines] = useState(true)
   const [replay, setReplay] = useState(0)
   const [copied, setCopied] = useState('')
@@ -68,34 +71,31 @@ export function Proof() {
       <PageHeader
         eyebrow="Proof"
         title="Evidence without exposure"
-        lede="Explore a simulated 3D explanation of spatial correspondence. Your actual comparison and redacted report remain separate below."
+        lede="Explore measured scene-map correspondences from your check, or switch to a clearly labeled 3D concept demonstration."
       />
-      <section className="proof-evidence proof-evidence-feature" aria-labelledby="evidence-connects-title">
+      <div className="proof-mode-switch" role="group" aria-label="Choose evidence visualization">
+        <button type="button" aria-pressed={mode === 'comparison'} onClick={() => setMode('comparison')}>My image comparison</button>
+        <button type="button" aria-pressed={mode === 'demo'} onClick={() => setMode('demo')}>How it works · 3D</button>
+      </div>
+      {mode === 'comparison' ? <section className="proof-evidence proof-evidence-feature" aria-labelledby="evidence-connects-title">
         <div className="proof-evidence-heading">
           <div>
-            <p className="eyebrow">How the Evidence Connects · Simulated</p>
-            <h2 id="evidence-connects-title">Spatial correspondence, made visible.</h2>
+            <p className="eyebrow">Your comparison · scene-map correspondences</p>
+            <h2 id="evidence-connects-title">What matched in your scene maps</h2>
           </div>
-          <p className="muted">A synthetic conceptual demonstration only. The rooms and lines are not derived from uploaded images or from the verification result.</p>
+          <p className="muted">These points and lines come from the scene graphs and alignment result used for this check. Stillpoint does not currently extract pixel keypoints, descriptors, or image transformations, and the original photographs are not retained for Proof.</p>
         </div>
+        {current ? <><EvidenceDiagram source={current.sourceGraph} suspect={current.suspectGraph} residuals={current.result.residuals} showLines={lines} replayKey={replay} reduced={reduced} sourceCaption="Original scene map" suspectCaption="Compared scene map" responsive /><div className="proof-connection-legend"><span><i className="legend-cyan" />Aligned scene-map points</span><span><i className="legend-amber" />Compared points outside the alignment threshold</span><span>Positions are user-reviewed map coordinates, not detected image features.</span></div>{current.sample && <p className="note">Illustrative sample scene graphs. These are not uploaded photographs.</p>}</> : <div className="panel"><h2>No comparison is open</h2><p className="muted">Run a Check to inspect its actual scene-map measurements here. Stillpoint will not invent image feature points when they are unavailable.</p><div className="actions"><Button to="/check">Start a check</Button><Button variant="secondary" onClick={() => setMode('demo')}>View the simulated 3D demonstration</Button></div></div>}
+      </section> : <section className="proof-evidence proof-evidence-feature" aria-labelledby="evidence-connects-title">
+        <div className="proof-evidence-heading"><div><p className="eyebrow">How the Evidence Connects · Simulated</p><h2 id="evidence-connects-title">Spatial correspondence, made visible.</h2></div><p className="muted">Simulated conceptual demonstration — not reconstructed from uploaded photographs or a verification result.</p></div>
         <EvidenceConnections />
-      </section>
+      </section>}
       <div className={`proof-layout${current ? '' : ' proof-empty'}`}>
         <section className="proof-main">
           <h2 className="proof-section-title">Your comparison</h2>
           {current && <>
             {current.sample && <p className="note proof-sample">Sample scene graphs. Not your photographs.</p>}
-            <EvidenceDiagram
-              source={current.sourceGraph}
-              suspect={current.suspectGraph}
-              residuals={current.result.residuals}
-              showLines={lines}
-              replayKey={replay}
-              reduced={reduced}
-              sourceCaption="Original viewpoint"
-              suspectCaption="Compared viewpoint"
-              responsive
-            />
+            <p className="muted">The diagram above visualizes the measured background landmarks in the comparison record. It is a scene-map view, not a view of the original pixels.</p>
           </>}
         </section>
         <aside className="proof-side">
@@ -119,10 +119,10 @@ export function Proof() {
               </ul>
             </section>
             <div className="actions proof-actions">
-              <Button variant="secondary" onClick={() => setReplay((value) => value + 1)}>Replay alignment</Button>
+              {mode === 'comparison' && <><Button variant="secondary" onClick={() => setReplay((value) => value + 1)}>Replay measured correspondences</Button>
               <Button variant="secondary" onClick={() => setLines((value) => !value)} pressed={lines}>
-                {lines ? 'Hide reference lines' : 'Show reference lines'}
-              </Button>
+                {lines ? 'Hide correspondence lines' : 'Show correspondence lines'}
+              </Button></>}
               <Button variant="secondary" onClick={() => void copySummary()}>Copy summary</Button>
               <Button variant="secondary" onClick={exportReport}>Export redacted report</Button>
               <Button onClick={() => setOpen(true)}>Request review</Button>

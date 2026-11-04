@@ -35,6 +35,7 @@ function ResultBody({ record, reduced, sampleQuery }: { record: CaseRecord; redu
   return (
     <div className={reduced ? 'stack' : 'stack reveal'}>
       {record.sample && <p className="note">Sample scene graphs shipped with Stillpoint. Not your photographs.</p>}
+      {record.discovery && <p className="note">Discovered through {record.discovery.provider} ({record.discovery.domain}). Provider relevance: {record.discovery.providerRelevance ?? 'not supplied'}; this is separate from the geometry measurements below. The candidate file and source association were supplied by the user.</p>}
       <section className={`panel verdict-${tone}`}>
         <span className={`status status-${tone}`}>{record.presentation.label}</span>
         <h2 style={{ marginTop: 12 }}>{record.presentation.summary}</h2>
@@ -54,7 +55,7 @@ function ResultBody({ record, reduced, sampleQuery }: { record: CaseRecord; redu
         suspectCaption={record.suspectLabel}
       />
       <div className="actions">
-        <Button to={sampleQuery ? `/proof?sample=${sampleQuery}` : '/proof'}>Open redacted proof</Button>
+        <Button to={sampleQuery ? `/proof?sample=${sampleQuery}` : `/proof?case=${encodeURIComponent(record.id)}`}>Explore Evidence Connections</Button>
         <Button to="/check" variant="secondary">Run another check</Button>
       </div>
       <section className="panel">
@@ -69,7 +70,7 @@ function ResultBody({ record, reduced, sampleQuery }: { record: CaseRecord; redu
             <h2>Correspondence measurements</h2>
             <ul className="limits">
               {record.result.residuals.map((item) => (
-                <li key={item.name}>
+                <li key={item.name} style={{ color: item.aligned ? '#67dce5' : '#d99591' }}>
                   {item.name}: residual {item.distance.toFixed(2)}, shift ({item.dx.toFixed(2)}, {item.dy.toFixed(2)}) — {item.aligned ? 'aligned' : 'not aligned'}
                 </li>
               ))}

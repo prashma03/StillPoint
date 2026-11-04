@@ -9,6 +9,7 @@ import type { SegmentRect } from '../lib/ai'
 import { runCheck } from '../lib/check'
 import { verifyWithPython } from '../lib/engine'
 import { sha256 } from '../lib/hash'
+import { safeLink, takeDiscoveryHandoff } from '../lib/discover'
 import { LANDMARK_DEFAULT_LIMIT, consentScope } from '../lib/landmarks'
 import { readGraph } from '../lib/graphs'
 import { mergeRectsToMask } from '../lib/segment'
@@ -26,6 +27,7 @@ export function Check() {
   usePageTitle('Check')
   const navigate = useNavigate()
   const [params] = useSearchParams()
+  const [discovery] = useState(() => params.get('discover') ? takeDiscoveryHandoff() : null)
   const { setRecord } = useCaseRecord()
   const scenes = useMemo(() => sceneStore().list(), [])
   const [settings, setSettings] = useState(() => settingsStore().load())
@@ -230,7 +232,7 @@ export function Check() {
         source: activeSource,
         suspect: mappedSuspect,
         sourceLabel,
-        suspectLabel: suspect?.name ?? 'Suspect',
+        suspectLabel: discovery ? `TinEye candidate: ${discovery.candidate.domain} (local file: ${suspect?.name ?? 'none'}; source association supplied by user)` : suspect?.name ?? 'Suspect',
         sourceHash: selected?.fileHash ?? null,
         suspectHash: suspect?.hash ?? null,
         sourceMask: selected?.mask ?? null,
@@ -257,6 +259,11 @@ export function Check() {
           : `Local Python engine returned ΓÇ£${checked.result.verdict}ΓÇ¥. The on-device verdict is the one shown.`
         : checked.error
     }
+    if (discovery) outcome.record.discovery = {
+      provider: 'TinEye', domain: discovery.candidate.domain,
+      sourceLinks: discovery.candidate.links.map(link => safeLink(link.page)).filter((link): link is string => !!link),
+      providerRelevance: discovery.candidate.provider_score,
+    }
     setRecord(outcome.record)
     setRunning(false)
     navigate('/results')
@@ -271,6 +278,12 @@ export function Check() {
       />
       <div className="split">
         <div className="stack">
+          {params.get('discover') && <section className="panel discover-candidate">
+            <h2>Verify discovered candidate</h2>
+            {discovery ? <><p className="muted">Selected from TinEye: {discovery.candidate.domain}. Provider relevance: {discovery.candidate.provider_score ?? 'not supplied'}; geometry remains unverified.</p>
+              {discovery.candidate.links.map((link, i) => safeLink(link.page) && <p key={i}><a href={safeLink(link.page)} target="_blank" rel="noreferrer">Candidate source {i + 1}</a></p>)}</> : <p className="note">Candidate metadata is no longer available. Return to Discover to select it again.</p>}
+            <p className="note">Add an authorized local copy of this candidate below. Stillpoint cannot confirm that a local file came from the linked source. Blind Mode and all existing viewing, masking, and model consent controls apply. Use the original feature names when mapping corresponding background features, then compare viewpoints and open Proof from Results.</p>
+          </section>}
           <section className={blind ? 'seal seal-on' : 'seal'} aria-live="polite">
             <p className="privacy">
               <i />

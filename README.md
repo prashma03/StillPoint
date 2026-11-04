@@ -228,3 +228,56 @@ and no real-image rates are claimed.
 - Evaluate on consented real-image pairs and publish measured error rates.
 - Explore justified geometric upgrades (e.g. similarity-fit residuals) with
   tests, keeping Python/TypeScript parity.
+
+## Discover: public image search
+
+Discover is available at `/discover` and from each protected scene. It uses
+TinEye's **paid public-index API**, not Meta AI, Google, Bing, private
+MatchEngine collections, or a keyword-search substitute. The API supports
+multipart image upload (`image_upload`) to `https://api.tineye.com/rest/search/`
+with server-side `x-api-key` authentication. Its search coverage is TinEye's
+indexed public web images, not every public site or authenticated social media.
+Official contract: https://github.com/TinEye/pytineye/blob/main/pytineye/api.py
+
+Set `TINEYE_API_KEY` in the repository `.env` or backend environment and restart
+the backend. Paid API access and search credits must be provisioned separately.
+`GET /api/discover/status` exposes configuration only, never the key. A present
+key is not proof of working access. No TinEye key was available during this
+implementation; **live search has not been verified**.
+
+Protect deliberately does not retain photographs. Discover asks for the original
+again, checks its registered hash locally, requires explicit per-search consent
+and a non-sensitive/non-intimate confirmation, then sends the complete unmasked
+image to TinEye through the local backend. No public image URL is created.
+Only JPEG/PNG/WebP up to 8 MB are accepted. Search has a 30-second provider socket
+timeout, 40-second browser timeout, bounded request/response sizes, and the
+existing per-client rate limiter (12 requests/minute shared with model calls).
+Cancelling aborts the browser request and discards the response. It cannot recall
+bytes already submitted or cancel TinEye's own processing; the bounded backend
+call may finish after cancellation. The backend writes no images to disk.
+
+Candidate source links and provider relevance are displayed as unverified.
+Remote thumbnail display is disabled until permission is established. The
+backend never fetches candidate image URLs: this eliminates that SSRF surface
+and avoids scraping, robots exceptions, or access-control bypasses. A user can
+visit a source, obtain an authorized local copy, and choose **Verify Candidate**
+to pass the selected metadata and original reference into Check. The local
+file's association with that source is user-supplied, not authenticated.
+Check retains Blind Mode, viewing acknowledgment, masking, manual/local mapping,
+and separately consented optional AI mapping. No candidate is automatically sent
+to an AI service. The existing comparison engine operates on the resulting
+background maps; Results links to the genuine comparison in Proof. Cyan
+measurements indicate aligned centers; coral indicates centers outside the
+threshold; amber denotes unverified discovery candidates. Search relevance never
+becomes geometric agreement. Insufficient maps remain inconclusive.
+
+Validation includes a generated non-sensitive PNG through the local HTTP API,
+provider upload-contract fixtures, missing credentials, provider errors, empty
+results, unsafe URLs, type mismatch, consent, origin and rate-limit checks, plus
+frontend cancellation and handoff-to-engine/report tests. Provider responses are
+explicit test fixtures, never application discoveries. A live consented-photo
+search-to-Proof run still requires paid TinEye credentials and an authorized
+sample pair; no such run or real-photo accuracy claim is made.
+
+Run `python -m unittest backend.test_discover backend.test_chat`, the existing
+`eval` suites, and `cd frontend && npm test` / `npm run build`.

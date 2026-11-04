@@ -2,6 +2,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Mark } from './ui'
 
 const links = [
+  { to: '/discover', label: 'Discover' },
   { to: '/check', label: 'Check' },
   { to: '/protect', label: 'Protect' },
   { to: '/proof', label: 'Proof' },
@@ -49,6 +50,7 @@ export function TabBar() {
         <CheckIcon />
         Check
       </NavLink>
+      <NavLink to="/discover" className="tab"><CheckIcon />Discover</NavLink>
       <NavLink to="/protect" className={protectOn ? 'tab tab-on' : 'tab'} aria-current={protectOn ? 'page' : undefined}>
         <ProtectIcon />
         Protect

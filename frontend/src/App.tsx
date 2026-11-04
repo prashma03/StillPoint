@@ -3,6 +3,7 @@ import { Route, Routes, useLocation } from 'react-router-dom'
 import { CaseProvider } from './components/case'
 import { TabBar, TopBar } from './components/Nav'
 import { Check } from './pages/Check'
+import { Discover } from './pages/Discover'
 import { Home } from './pages/Home'
 import { Proof } from './pages/Proof'
 import { Protect } from './pages/Protect'
@@ -51,6 +52,7 @@ function Stage() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/check" element={<Check />} />
+        <Route path="/discover" element={<Discover />} />
         <Route path="/protect" element={<Protect />} />
         <Route path="/protected/:id" element={<ProtectedDetail />} />
         <Route path="/results" element={<Results />} />

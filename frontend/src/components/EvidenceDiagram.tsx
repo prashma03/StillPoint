@@ -34,6 +34,7 @@ export function EvidenceDiagram({
   responsive = false,
 }: Props) {
   const [active, setActive] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
   const [stacked, setStacked] = useState(() => responsive && typeof window !== 'undefined' && window.matchMedia('(max-width: 600px)').matches)
   const residualByName = new Map(residuals.map((item) => [item.name, item]))
   useEffect(() => {
@@ -78,7 +79,8 @@ export function EvidenceDiagram({
             const y1 = mapY(left.y + left.height / 2, sourceTop)
             const x2 = mapCoord(right.x + right.width / 2, rightOrigin, diagramSize)
             const y2 = mapY(right.y + right.height / 2, suspectTop)
-            const dim = active && active !== item.name
+            const focused = active ?? selected
+            const dim = focused && focused !== item.name
             return (
               <line
                 key={item.name}
@@ -88,10 +90,15 @@ export function EvidenceDiagram({
                 y1={y1}
                 x2={x2}
                 y2={y2}
-                stroke={item.aligned ? '#8FB9A4' : '#8E9AAB'}
-                strokeWidth={item.aligned ? 1.6 : 1.2}
-                opacity={dim ? 0.15 : 0.9}
-                style={{ animationDelay: `${420 + index * 70}ms` }}
+                stroke={item.aligned ? '#50DDE8' : '#F3B75E'}
+                strokeWidth={item.aligned ? 2.4 : 1.5}
+                strokeDasharray={item.aligned ? undefined : '5 5'}
+                opacity={dim ? 0.12 : item.aligned ? 0.95 : 0.58}
+                onMouseEnter={() => setActive(item.name)}
+                onMouseLeave={() => setActive(null)}
+                onClick={() => setSelected(item.name)}
+                style={{ animationDelay: `${420 + index * 70}ms`, cursor: 'pointer' }}
+                aria-label={`${item.name}, ${item.aligned ? 'aligned' : 'outside alignment threshold'}`}
               />
             )
           })}
@@ -99,7 +106,8 @@ export function EvidenceDiagram({
           const left = source.room_objects.find((obj) => obj.name === item.name)
           const right = suspect.room_objects.find((obj) => obj.name === item.name)
           if (!left || !right) return null
-          const dim = active && active !== item.name
+          const focused = active ?? selected
+          const dim = focused && focused !== item.name
           return (
             <g key={item.name} opacity={dim ? 0.28 : 1}>
               <Point
@@ -109,6 +117,7 @@ export function EvidenceDiagram({
                 aligned={item.aligned}
                 delay={index * 80}
                 onActive={setActive}
+                onSelect={setSelected}
               />
               <Point
                 x={mapCoord(right.x + right.width / 2, rightOrigin, diagramSize)}
@@ -117,15 +126,16 @@ export function EvidenceDiagram({
                 aligned={item.aligned}
                 delay={index * 80 + 40}
                 onActive={setActive}
+                onSelect={setSelected}
               />
             </g>
           )
         })}
       </svg>
       <p className="diagram-readout">
-        {active && residualByName.get(active)
-          ? `${active}: residual ${residualByName.get(active)!.distance.toFixed(2)}. ${
-              residualByName.get(active)!.aligned ? 'Aligned' : 'Not aligned'
+        {(active ?? selected) && residualByName.get((active ?? selected)!)
+          ? `${active ?? selected}: residual ${residualByName.get((active ?? selected)!)!.distance.toFixed(2)}. ${
+              residualByName.get((active ?? selected)!)!.aligned ? 'Aligned within threshold' : 'Outside the alignment threshold'
             }.`
           : 'Select a reference point to read its correspondence.'}
       </p>
@@ -149,6 +159,7 @@ function Point({
   aligned,
   delay,
   onActive,
+  onSelect,
 }: {
   x: number
   y: number
@@ -156,6 +167,7 @@ function Point({
   aligned: boolean
   delay: number
   onActive: (name: string | null) => void
+  onSelect: (name: string) => void
 }) {
   return (
     <g className="pt" style={{ animationDelay: `${delay}ms` }}>
@@ -171,8 +183,10 @@ function Point({
         onMouseLeave={() => onActive(null)}
         onFocus={() => onActive(name)}
         onBlur={() => onActive(null)}
+        onClick={() => onSelect(name)}
+        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(name) } }}
       />
-      <circle cx={x} cy={y} r="4.5" fill={aligned ? '#8FB9A4' : '#4A9EFF'} />
+      <circle cx={x} cy={y} r="4.5" fill={aligned ? '#50DDE8' : '#F3B75E'} />
       <text x={x + 8} y={y - 8} fill="#A6B4C2" fontSize="12">
         {name}
       </text>

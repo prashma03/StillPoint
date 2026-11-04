@@ -67,6 +67,7 @@ export function ProtectedDetail() {
           {!scene.maskConfirmed && <p className="note">A person mask was not confirmed for this scene.</p>}
           <div className="actions">
             <Button to={`/check?scene=${scene.id}`}>Use in a check</Button>
+            <Button to={`/discover?scene=${scene.id}`} variant="secondary">Discover candidates</Button>
             <Button to={`/test?scene=${scene.id}`} variant="secondary">Test this scene</Button>
             <Button variant="secondary" onClick={exportGraph}>Export scene graph</Button>
             <Button variant="secondary" onClick={() => setOpen(true)}>Delete</Button>
