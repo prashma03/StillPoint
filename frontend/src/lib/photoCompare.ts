@@ -70,6 +70,13 @@ function corners(image: Pixels, masks: Mask[], pixelMask?: PixelMask | null): Co
   return selected
 }
 
+/** Distributed corners are a composition hint, not semantic scene recognition. */
+export function measureFeatureAvailability(image: Pixels, masks: Mask[], pixelMask?: PixelMask | null) {
+  const points = corners(image, masks, pixelMask)
+  const cells = new Set(points.map(p => `${Math.min(3, Math.floor(p.x / image.width * 4))}:${Math.min(3, Math.floor(p.y / image.height * 4))}`))
+  return { corners: points.length, occupiedCells: cells.size }
+}
+
 const RENDER_LIMIT = 64
 
 function near(point: PlanePoint, kept: PlanePoint[]) {
