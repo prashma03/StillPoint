@@ -80,6 +80,13 @@ describe('manual rectangular privacy masks', () => {
     expect((screen.getByLabelText(/I reviewed this mask/) as HTMLInputElement).checked).toBe(false)
   })
 
+  it('removes the focused mask with Backspace without deleting from an editable field', () => {
+    render(<Harness />); manual()
+    const mask = screen.getByRole('group', { name: /Mask 1/ })
+    fireEvent.keyDown(mask, { key: 'Backspace' })
+    expect(document.querySelectorAll('.check-cover')).toHaveLength(0)
+  })
+
   it('keeps Blind Mode concealed until the user explicitly chooses to reveal the image', () => {
     render(<Harness visible={false} />)
     fireEvent.click(screen.getByRole('button', { name: /Manual Mask/ }))
