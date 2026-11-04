@@ -197,8 +197,6 @@ export async function buildEvidencePdf(record: CaseRecord, options: EvidencePdfO
     const modal = record.modalGeometry.evidence
     y = paragraph(pageTwo, `Supplemental remote Modal geometry: ${modal.verified_inliers} RANSAC inliers from ${modal.candidate_matches} measured candidates; uncertainty ${modal.uncertainty.status}${modal.uncertainty.reasons.length ? ` (${modal.uncertainty.reasons.join(', ')})` : ''}. Model ${modal.alignment.model}; mean reprojection ${modal.alignment.mean_inlier_reprojection_error_px == null ? 'not available' : `${modal.alignment.mean_inlier_reprojection_error_px.toFixed(2)} px`}; coverage ${(modal.alignment.source_inlier_hull_coverage * 100).toFixed(2)}%. This supplemental measurement did not change the on-device verdict. Coordinates below refer to the respective redacted images and are normalized 0–1.`, M, y, W - 2 * M, regular, 8.2)
     y = paragraph(pageTwo, `${modal.matches.length} actual feature coordinate pairs are included in the report appendix. Coordinates are normalized in the redacted input images.`, M, y, W - 2 * M, regular, 8.2)
-  } else if (record.modalGeometry?.status === 'fallback') {
-    y = paragraph(pageTwo, `Supplemental Modal verification unavailable: ${record.modalGeometry.reason}. The on-device result was retained.`, M, y, W - 2 * M, regular, 8.2)
   }
   y = paragraph(pageTwo, 'The comparison excludes person-named objects and any reviewed feature coordinates falling within confirmed privacy covers, then compares remaining named point centers. Each residual is measured against the threshold shown on page 1. This is an experimental visual correspondence workflow, not an image-authenticity examination.', M, y, W - 2 * M, regular, 8.5)
   y -= 3

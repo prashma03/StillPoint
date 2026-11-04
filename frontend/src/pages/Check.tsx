@@ -204,17 +204,13 @@ export function Check() {
         : 'Reviewed scene-map coordinates only. Image corners were not detected for this case.'
       outcome.record.faceGeometrySummary = null
       if (modalConsent && modalConfigured && redactedPair[0] && redactedPair[1]) {
-        setNotice('Sending only downscaled, metadata-stripped, opaque-mask copies for opt-in Modal geometric verification…')
         try {
           const evidence = await verifyModalGeometry(redactedPair[0].dataUrl, redactedPair[1].dataUrl)
           outcome.record.modalGeometry = { status: 'completed', evidence }
           setNotice(`Modal measured ${evidence.verified_inliers} geometric inliers from ${evidence.candidate_matches} image-feature candidates. Uncertainty: ${evidence.uncertainty.status}. The local verdict is unchanged.`)
-        } catch (modalError) {
-          outcome.record.modalGeometry = { status: 'fallback', reason: modalError instanceof Error ? modalError.message : 'Modal unavailable.' }
-          setNotice('Modal verification was unavailable; the on-device comparison is retained unchanged.')
+        } catch {
+          // Local analysis already succeeded. Optional Modal failures silently fall back to it.
         }
-      } else if (modalConsent) {
-        outcome.record.modalGeometry = { status: 'fallback', reason: 'Both privacy-redacted image copies were unavailable or the Modal service is not configured.' }
       }
       if (discovery) outcome.record.discovery = { provider: 'TinEye', domain: discovery.candidate.domain, providerRelevance: discovery.candidate.provider_score, sourceLinks: discovery.candidate.links.map(link => link.page).filter((link): link is string => !!link) }
       setProofMedia({ caseId: outcome.record.id, original: blobs[0], suspicious: blobs[1], blind: proofNeedsViewingChoice(session) })
@@ -276,7 +272,7 @@ export function Check() {
       <div className="actions"><Button variant="secondary" disabled={busy || faceBusy} onClick={() => go(2)}>Back</Button><Button disabled={busy || faceBusy || !session.reviewed || (method === 'facial' && !faceConsent)} onClick={() => go(4)}>Continue to Analysis</Button></div>
     </section>}
     {session.step === 4 && <section className="panel stack"><h2>4. Analyze</h2>
-      {method !== 'facial' && <div className="modal-opt-in"><label className="checkline"><input type="checkbox" checked={modalConsent} disabled={!modalConfigured || busy || !session.original.confirmed || !session.suspicious.confirmed} onChange={event => setModalConsent(event.target.checked)} /><span><strong>Optional remote verification with Modal</strong><br />{modalConfigured ? 'If selected, Stillpoint sends downscaled JPEG copies with opaque privacy masks and metadata removed to the configured Modal service. Unmasked areas may still contain sensitive details. Your local result remains separate.' : 'Modal service is not configured on this computer. The existing on-device workflow is available.'}</span></label><p className="muted">{modalConfigured ? 'Unchecked by default. Both image privacy reviews must be confirmed.' : 'To enable this option, deploy the service and configure the local backend environment.'}</p></div>}
+      {method !== 'facial' && modalConfigured && <div className="modal-opt-in"><label className="checkline"><input type="checkbox" checked={modalConsent} disabled={busy || !session.original.confirmed || !session.suspicious.confirmed} onChange={event => setModalConsent(event.target.checked)} /><span><strong>Optional remote verification with Modal</strong><br />If selected, Stillpoint sends downscaled JPEG copies with opaque privacy masks and metadata removed to the configured Modal service. Unmasked areas may still contain sensitive details. Your local result remains separate.</span></label><p className="muted">Unchecked by default. Both image privacy reviews must be confirmed.</p></div>}
       <p>{method === 'facial' ? 'Measure selected facial reference points locally after consent. Existing covers are applied first. No background or identity comparison will run.' : `Compare ${session.original.graph.room_objects.length} original details with ${session.suspicious.graph.room_objects.length} compared-image details. Covered regions are excluded again. Sparse pairs may be inconclusive.`}</p>
       <div className="actions"><Button variant="secondary" disabled={busy || faceBusy} onClick={() => go(3)}>Back</Button><Button disabled={busy || faceBusy || (method === 'facial' && !faceConsent) || (scanning && choice === 'automatic')} onClick={() => void analyze()}>{busy || faceBusy ? 'Analyzing…' : 'Analyze Images'}</Button>{faceBusy && <Button variant="ghost" onClick={() => { faceRequest.current?.abort(); sequence.current++; setFaceBusy(false); setFaceConsent(false); setNotice('Facial analysis cancelled. Temporary results discarded; nothing sent externally.') }}>Cancel analysis</Button>}</div><ol className="stages" aria-live="polite">{stages.map(stage => <li className="stage" key={stage.id}><b>{stage.label}</b><span>{stage.detail}</span></li>)}</ol>
     </section>}

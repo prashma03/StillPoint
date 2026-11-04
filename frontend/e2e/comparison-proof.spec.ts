@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test'
 
 test('uploaded photographs survive Check → Proof and show correctly aligned measured correspondences', async ({ page }) => {
+  const modalRequests: string[] = []
+  page.on('request', request => { if (request.url().includes('/api/modal/verify')) modalRequests.push(request.url()) })
   await page.addInitScript(() => {
     sessionStorage.setItem('stillpoint.guest.v1', 'true')
     sessionStorage.setItem('stillpoint.intro.v1', 'complete')
   })
-  await page.route('**/api/status', route => route.fulfill({ json: { configured: false } }))
+  await page.route('**/api/status', route => route.fulfill({ json: { configured: false, modal_verification: { configured: false } } }))
   await page.goto('/check', { waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('heading', { name: 'Check an Image' })).toBeVisible()
   const inputs = page.locator('input[type="file"]')
@@ -19,10 +21,14 @@ test('uploaded photographs survive Check → Proof and show correctly aligned me
   await expect(page.getByRole('heading', { name: /Review Available Features/ })).toBeVisible({ timeout: 60_000 })
   await page.getByRole('checkbox', { name: /I reviewed the available details/ }).check()
   await page.getByRole('button', { name: 'Continue to Analysis' }).click()
+  await expect(page.locator('.modal-opt-in')).toHaveCount(0)
+  await expect(page.getByText(/Modal service is not configured/i)).toHaveCount(0)
   await page.getByRole('button', { name: 'Analyze Images' }).click()
   await expect(page.getByRole('heading', { name: '5. Comparison Results' })).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText(/Modal verification was unavailable|Modal service is not configured/i)).toHaveCount(0)
   await page.getByRole('link', { name: 'Continue to Proof' }).click()
   await expect(page.getByRole('heading', { name: 'Correspondences from this comparison' })).toBeVisible()
+  await expect(page.getByText(/Optional Modal verification unavailable|Modal service is not configured/i)).toHaveCount(0)
   await expect(page.getByText('Stillpoint-familiar-but-different.png')).toBeVisible()
   await expect(page.getByText('Stillpoint-similar-room-person.png')).toBeVisible()
   await page.getByRole('checkbox', { name: /I choose to reveal the redacted suspected photograph/ }).check()
@@ -41,4 +47,5 @@ test('uploaded photographs survive Check → Proof and show correctly aligned me
     await pointButton.click()
     await expect(pointButton).toBeFocused()
   }
+  expect(modalRequests).toEqual([])
 })

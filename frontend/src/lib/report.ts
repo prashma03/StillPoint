@@ -95,7 +95,7 @@ export function reportText(record: CaseRecord): string {
       `Supplemental Modal geometric verification: ${record.modalGeometry.evidence.verified_inliers} RANSAC inliers from ${record.modalGeometry.evidence.candidate_matches} actual feature candidates; uncertainty ${record.modalGeometry.evidence.uncertainty.status}. This did not change the on-device verdict.`,
       `Modal alignment: ${record.modalGeometry.evidence.alignment.model}; mean inlier reprojection ${record.modalGeometry.evidence.alignment.mean_inlier_reprojection_error_px == null ? 'not available' : `${record.modalGeometry.evidence.alignment.mean_inlier_reprojection_error_px.toFixed(2)} px`}; source hull coverage ${(record.modalGeometry.evidence.alignment.source_inlier_hull_coverage * 100).toFixed(2)}%.`,
       ...record.modalGeometry.evidence.matches.map((match, index) => `Modal measured pair ${index + 1}: source (${match.source.x.toFixed(5)}, ${match.source.y.toFixed(5)}), compared (${match.suspect.x.toFixed(5)}, ${match.suspect.y.toFixed(5)}), ${match.inlier ? 'RANSAC inlier' : 'rejected'}, reprojection ${match.reprojection_error_px == null ? 'unavailable' : `${match.reprojection_error_px.toFixed(3)} px`}.`),
-    ] : record.modalGeometry?.status === 'fallback' ? [`Supplemental Modal verification: unavailable (${record.modalGeometry.reason}); on-device result retained.`] : []),
+    ] : []),
     `Background coverage in source graph: ${formatCoverage(record.result.source_coverage_percent)}`,
     `Background coverage in suspect graph: ${formatCoverage(record.result.suspect_coverage_percent)}`,
     `Shift pattern: ${shiftLabel(record.result)} (describes movement only; never changes the verdict)`,
