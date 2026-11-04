@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, PageHeader, usePageTitle } from '../components/ui'
+import { DiscoverScan } from '../components/DiscoverScan'
 import { discoverRequest, readSearchImage, safeLink, setDiscoveryHandoff, type Candidate, type DiscoverStatus } from '../lib/discover'
 import { sha256 } from '../lib/hash'
 import { sceneStore } from '../lib/storage'
@@ -36,7 +37,7 @@ export function Discover() {
     setRunning(true); setCandidates(null); setError(''); setMessage('Checking the original on this device…')
     try {
       const image = await readSearchImage(file)
-      if (!scene.fileHash || await sha256(file) !== scene.fileHash) throw new Error('This file does not match the registered original. Register the photograph in Protect first; graph-only registrations cannot be searched.')
+      if (!scene.fileHash || await sha256(file) !== scene.fileHash) throw new Error('This file does not match the saved scene map. Graph-only records cannot be searched.')
       controller.signal.throwIfAborted()
       setMessage('Searching TinEye’s public image index…')
       const result = await discoverRequest<{ candidates: Candidate[] }>('search', AbortSignal.any([controller.signal, AbortSignal.timeout(40000)]), { image, consent: true, non_sensitive: true })
@@ -47,10 +48,11 @@ export function Discover() {
   }
   return <div className="page discover">
     <PageHeader eyebrow="Discover" title="Find possible visual derivatives" lede="Search a supported public image index, then examine background geometry in Check." />
+    <DiscoverScan onContinue={summary => navigate('/proof', { state: { discoveryScan: summary } })} />
     <div className="split"><div className="stack">
       <section className="panel stack">
         <h2>Original photograph</h2>
-        {!scenes.length && <p className="note">Register an original photograph in <a href="/protect">Protect</a> first.</p>}
+        {!scenes.length && <p className="note">No saved scene maps are on this device. New background comparisons start in Check. Protect changes a photograph; it does not create a scene map.</p>}
         <label className="field"><span>Registered original</span><select disabled={running} value={sceneId} onChange={e => { reset(); setSceneId(e.target.value); setFile(null) }}>
           <option value="">Choose an original</option>{scenes.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
         </select></label>

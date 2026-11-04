@@ -52,7 +52,7 @@ export function ProtectedDetail() {
       <PageHeader
         eyebrow="Protected scene"
         title={scene.label}
-        lede="The photograph was not saved. This is the background map that remains."
+        lede="This is a saved scene map for Proof, not the protection shield. The photograph was not saved."
       />
       <div className="split">
         <SceneSketch objects={scene.graph.room_objects} />
@@ -72,7 +72,7 @@ export function ProtectedDetail() {
             <Button variant="secondary" onClick={exportGraph}>Export scene graph</Button>
             <Button variant="secondary" onClick={() => setOpen(true)}>Delete</Button>
           </div>
-          <p className="footer-note"><Link to="/protect">All protected scenes</Link></p>
+          <p className="footer-note"><Link to="/protect">Image protection</Link></p>
         </div>
       </div>
       <Dialog open={open} title="Delete this scene graph?" confirmLabel="Delete" onConfirm={remove} onClose={() => setOpen(false)}>

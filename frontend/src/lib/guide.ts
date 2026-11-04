@@ -73,7 +73,7 @@ export function guideErrorMessage(code: string): string {
 export function guideFallback(page: string): string {
   const lead = 'Local navigation help, not a model reply.'
   if (page === 'protect') {
-    return `${lead} On Protect, step 1 is “Start with the original photo.” Use the dashed control labeled “Choose a photograph.” It accepts a JPEG, PNG, or WebP up to 20 MB, or a scene-graph JSON file. Then name the scene and press Continue. The photograph stays in this browser tab. This chat does not upload it.`
+    return `${lead} On Protect, use the dashed control labeled “Choose a photograph.” It accepts a JPEG, PNG, or WebP up to 20 MB. Then press “Apply Protection Shield.” The photograph stays in this browser. The shield is experimental and cannot guarantee that an editing model will fail. This chat does not upload it.`
   }
   if (page === 'check') {
     return `${lead} On Check, add the other file with “Add the suspicious file.” Blind Mode hides that image. Choose the original under “Your protected scene,” or import a scene graph, then press Compare viewpoints.`

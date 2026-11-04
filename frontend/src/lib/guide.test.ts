@@ -175,7 +175,7 @@ describe('guide status and navigation', () => {
     const help = guideFallback('protect')
     expect(help).toMatch(/not a model reply/)
     expect(help).toMatch(/Choose a photograph/)
-    expect(help).toMatch(/Start with the original photo/)
+    expect(help).toMatch(/Apply Protection Shield/)
     expect(help).not.toMatch(/Meta generated|AI generated/)
     expect(guideFallback('check')).toMatch(/Add the suspicious file/)
   })

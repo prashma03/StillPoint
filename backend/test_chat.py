@@ -126,7 +126,7 @@ class ChatEndpointTests(unittest.TestCase):
         prompt = model.call_args.args[0][0]["content"]
         self.assertIn("Current page: protect", prompt)
         self.assertIn("Choose a photograph", prompt)
-        self.assertIn("Start with the original photo", prompt)
+        self.assertIn("Apply Protection Shield", prompt)
         self.assertNotIn("**", prompt)
 
     @patch.object(server, "is_configured", return_value=True)
