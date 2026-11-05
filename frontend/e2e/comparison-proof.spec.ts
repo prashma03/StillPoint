@@ -25,6 +25,16 @@ test('uploaded photographs survive Check → Proof and show correctly aligned me
   await expect(page.getByText(/Modal service is not configured/i)).toHaveCount(0)
   await page.getByRole('button', { name: 'Analyze Images' }).click()
   await expect(page.getByRole('heading', { name: '5. Comparison Results' })).toBeVisible({ timeout: 60_000 })
+  const resultDiagram = page.locator('.analysis-background-diagram')
+  const diagramSvg = resultDiagram.locator('svg')
+  const diagramEmptyState = resultDiagram.locator('.diagram-empty')
+  await expect.poll(async () => (await diagramSvg.count()) + (await diagramEmptyState.count())).toBe(1)
+  if (await diagramSvg.count()) {
+    const diagramMarks = await diagramSvg.evaluate(svg => svg.querySelectorAll('circle:not([fill="transparent"])').length + svg.querySelectorAll('line').length)
+    expect(diagramMarks).toBeGreaterThan(0)
+  } else {
+    await expect(diagramEmptyState).toContainText('No paired details to visualize')
+  }
   await expect(page.getByText(/Modal verification was unavailable|Modal service is not configured/i)).toHaveCount(0)
   await page.getByRole('link', { name: 'Continue to Proof' }).click()
   await expect(page.getByRole('heading', { name: 'Correspondences from this comparison' })).toBeVisible()

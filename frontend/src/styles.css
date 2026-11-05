@@ -387,6 +387,9 @@ h2 { margin: 0 0 8px; font-size: 1.35rem; letter-spacing: -0.03em; font-weight: 
 .object-list { list-style: none; padding: 0; margin: 0; }
 .object-list li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
 .diagram { background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.diagram-empty { display: grid; gap: 6px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-2); color: var(--muted); line-height: 1.5; }
+.diagram-empty strong { color: var(--text); font-weight: 600; }
+.diagram-empty-responsive { width: 100%; }
 .diagram svg { display: block; width: 100%; height: auto; }
 .diagram-play .pt { opacity: 0; animation: pt-in 480ms var(--ease) forwards; }
 .diagram-play .ln { stroke-dasharray: 1; stroke-dashoffset: 1; animation: ln-in 700ms var(--ease) forwards; }

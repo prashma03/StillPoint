@@ -36,8 +36,19 @@ export function EvidenceDiagram({
   const [active, setActive] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [stacked, setStacked] = useState(() => responsive && typeof window !== 'undefined' && window.matchMedia('(max-width: 600px)').matches)
-  const residualByName = new Map(residuals.map((item) => [item.name, item]))
-  const focusedName = active ?? selected ?? residuals[0]?.name ?? null
+  const keyOf = (name: string) => name.trim().toLowerCase()
+  const residualByName = new Map(residuals.map((item) => [keyOf(item.name), item]))
+  const sourceByName = new Map(source.room_objects.map((item) => [keyOf(item.name), item]))
+  const suspectByName = new Map(suspect.room_objects.map((item) => [keyOf(item.name), item]))
+  const correspondences = residuals.flatMap((residual) => {
+    const key = keyOf(residual.name)
+    const left = sourceByName.get(key), right = suspectByName.get(key)
+    if (!left || !right) return []
+    const values = [left.x, left.y, left.width, left.height, right.x, right.y, right.width, right.height]
+    return values.every(Number.isFinite) ? [{ residual, left, right }] : []
+  })
+  const focusedName = active ?? selected ?? correspondences[0]?.residual.name ?? null
+  const focusedResidual = focusedName ? residualByName.get(keyOf(focusedName)) : undefined
   useEffect(() => {
     if (!responsive) return
     const query = window.matchMedia('(max-width: 600px)')
@@ -46,6 +57,12 @@ export function EvidenceDiagram({
     query.addEventListener('change', update)
     return () => query.removeEventListener('change', update)
   }, [responsive])
+  if (correspondences.length === 0) {
+    return <div className={`diagram-empty${responsive ? ' diagram-empty-responsive' : ''}`} role="status">
+      <strong>No paired details to visualize</strong>
+      <span>This comparison has no shared, drawable background points. The measurements remain in the result summary.</span>
+    </div>
+  }
   const diagramSize = stacked ? 440 : SIZE
   const leftOrigin = stacked ? 30 : LEFT
   const rightOrigin = stacked ? 30 : RIGHT
@@ -72,10 +89,7 @@ export function EvidenceDiagram({
           <Furniture key={`t-${obj.name}`} obj={obj} origin={rightOrigin} top={suspectTop} size={diagramSize} />
         ))}
         {showLines &&
-          residuals.map((item, index) => {
-            const left = source.room_objects.find((obj) => obj.name === item.name)
-            const right = suspect.room_objects.find((obj) => obj.name === item.name)
-            if (!left || !right) return null
+          correspondences.map(({ residual: item, left, right }, index) => {
             const x1 = mapCoord(left.x + left.width / 2, leftOrigin, diagramSize)
             const y1 = mapY(left.y + left.height / 2, sourceTop)
             const x2 = mapCoord(right.x + right.width / 2, rightOrigin, diagramSize)
@@ -103,40 +117,36 @@ export function EvidenceDiagram({
               />
             )
           })}
-        {residuals.map((item, index) => {
-          const left = source.room_objects.find((obj) => obj.name === item.name)
-          const right = suspect.room_objects.find((obj) => obj.name === item.name)
-          if (!left || !right) return null
-          const focused = focusedName
-          const dim = focused && focused !== item.name
+        {correspondences.map(({ residual: item, left, right }, index) => {
+          const dim = focusedName && keyOf(focusedName) !== keyOf(item.name)
           return (
-            <g key={item.name} opacity={dim ? 0.28 : 1}>
+            <g key={keyOf(item.name)} className="pt" style={{ opacity: dim ? 0.28 : 1 }}>
               <Point
                 x={mapCoord(left.x + left.width / 2, leftOrigin, diagramSize)}
                 y={mapY(left.y + left.height / 2, sourceTop)}
-                name={item.name}
+                name={left.name}
                 aligned={item.aligned}
                 delay={index * 80}
                 onActive={setActive}
-                onSelect={setSelected}
+                onSelect={() => setSelected(item.name)}
               />
               <Point
                 x={mapCoord(right.x + right.width / 2, rightOrigin, diagramSize)}
                 y={mapY(right.y + right.height / 2, suspectTop)}
-                name={item.name}
+                name={right.name}
                 aligned={item.aligned}
                 delay={index * 80 + 40}
                 onActive={setActive}
-                onSelect={setSelected}
+                onSelect={() => setSelected(item.name)}
               />
             </g>
           )
         })}
       </svg>
       <p className="diagram-readout">
-        {focusedName && residualByName.get(focusedName)
-          ? `${focusedName}: residual ${residualByName.get(focusedName)!.distance.toFixed(2)}. ${
-              residualByName.get(focusedName)!.aligned ? 'Aligned within threshold' : 'Outside the alignment threshold'
+        {focusedName && focusedResidual
+          ? `${focusedName}: residual ${focusedResidual.distance.toFixed(2)}. ${
+              focusedResidual.aligned ? 'Aligned within threshold' : 'Outside the alignment threshold'
             }.`
           : 'No paired reference points are available in this scene map.'}
       </p>
